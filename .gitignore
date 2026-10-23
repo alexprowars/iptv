@@ -1,0 +1,34 @@
+# Gradle, Kotlin, Android Studio and local machine settings
+.gradle/
+.kotlin/
+.idea/
+*.iml
+local.properties
+.DS_Store
+
+# Build outputs, generated packages and reports in any module
+build/
+dist/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+*.hprof
+*.log
+
+# Local signing material
+.local-signing/
+*.keystore
+*.jks
+*.p12
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Markdown files (including nested directories and uppercase extensions)
+*.[mM][dD]
