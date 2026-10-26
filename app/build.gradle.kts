@@ -11,8 +11,8 @@ android {
         applicationId = "home.iptv"
         minSdk = 31
         targetSdk = 37
-        versionCode = 23
-        versionName = "0.2.20"
+        versionCode = 28
+        versionName = "0.2.25"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     // Supply signing credentials through environment variables, never through the repository.

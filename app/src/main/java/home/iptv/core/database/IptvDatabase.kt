@@ -29,6 +29,8 @@ interface IptvDao {
     @Upsert suspend fun saveLinks(links: List<PlaylistEpg>)
     @Query("DELETE FROM playlist_epg WHERE playlistId = :id OR sourceId = :id") suspend fun deleteLinks(id: String)
     @Query("SELECT * FROM mappings") suspend fun mappings(): List<ChannelEpgMapping>
+    @Query("SELECT DISTINCT s.id FROM mappings m JOIN channels c ON c.id = m.channelId JOIN sources s ON s.id = m.sourceId AND s.kind = 'epg' WHERE c.available = 1 AND m.mode != 'disabled' AND NOT EXISTS (SELECT 1 FROM programs p WHERE p.sourceId = s.id AND p.generation = s.generation AND p.epgId = m.epgId AND p.end > :now)")
+    suspend fun sourcesMissingPrograms(now: Long): List<String>
     @Query("SELECT * FROM mappings WHERE channelId = :id") fun observeMapping(id: String): Flow<ChannelEpgMapping?>
     @Upsert suspend fun saveMappings(mappings: List<ChannelEpgMapping>)
     @Query("DELETE FROM mappings WHERE channelId IN (SELECT id FROM channels WHERE playlistId = :id)") suspend fun deletePlaylistMappings(id: String)

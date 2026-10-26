@@ -13,8 +13,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -28,18 +26,47 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.tv.material3.Text
 import home.iptv.core.model.Channel
+import home.iptv.core.model.ChannelProgram
 import home.iptv.core.model.Program
+import home.iptv.ui.RetainedDashboard
+import home.iptv.ui.rememberVisibleValue
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
-fun PlayerScreen(channel: Channel, programs: List<Program>,
-                 recentChannels: List<Channel>, recentPrograms: Map<String, Program>,
+fun PlayerScreen(channel: Channel, recentChannels: List<Channel>,
+                 loadPrograms: (List<String>, Long, Long) -> Flow<List<ChannelProgram>>,
                  onStep: (Int) -> Unit, onRecent: (Channel) -> Unit, onBack: () -> Unit,
                  controller: PlaybackController, active: Boolean,
+                 initialPrograms: (List<String>, Long, Long) -> Map<String, List<Program>> = { _, _, _ -> emptyMap() },
                  guide: @Composable (Boolean, () -> Unit) -> Unit) {
     val state by controller.state.collectAsState()
-    PlayerContent(channel, programs, state, onStep, onRecent, onBack, controller::retry,
-        recentChannels, recentPrograms, guide, active = active) {}
+    PlayerContent(channel, emptyList(), state, onStep, onRecent, onBack, controller::retry,
+        recentChannels = recentChannels, guide = guide, active = active, infoPrograms = { now ->
+            val recentIds = remember(recentChannels, channel.id) {
+                recentChannels.filter { it.id != channel.id }.take(10).map { it.id }
+            }
+            // Reuse the guide's already loaded programmes on the first frame.
+            // Live queries remain scoped to the visible panel.
+            val initial = remember(channel.id, recentIds, now / 60_000) {
+                val start = now / 3_600_000L * 3_600_000L
+                initialPrograms(listOf(channel.id) + recentIds, start, start + 2 * 3_600_000L)
+            }
+            val programs by remember(loadPrograms, channel.id, now / 60_000) {
+                loadPrograms(listOf(channel.id), now, now + 12 * 3_600_000L)
+                    .map { rows -> rows.map { it.program } }.distinctUntilChanged()
+            }.collectAsState(initial[channel.id].orEmpty())
+            val recentPrograms by remember(loadPrograms, recentIds, now / 60_000) {
+                if (recentIds.isEmpty()) flowOf(emptyMap()) else loadPrograms(recentIds, now, now + 1)
+                    .map { rows -> rows.associate { it.channelId to it.program } }.distinctUntilChanged()
+            }.collectAsState(recentIds.mapNotNull { id ->
+                initial[id]?.lastOrNull { now in it.start until it.end }?.let { id to it }
+            }.toMap())
+            programs to recentPrograms
+        }) {}
 }
 
 /** Video stays mounted while either overlay is open. All key events renew the inactivity timeout. */
@@ -49,17 +76,28 @@ internal fun PlayerContent(channel: Channel, programs: List<Program>, state: Pla
                            onRetry: () -> Unit, recentChannels: List<Channel> = emptyList(),
                            recentPrograms: Map<String, Program> = emptyMap(),
                            guide: @Composable (Boolean, () -> Unit) -> Unit = { _, _ -> },
-                           active: Boolean = true, video: @Composable () -> Unit) {
+                           active: Boolean = true,
+                           infoPrograms: @Composable (Long) -> Pair<List<Program>, Map<String, Program>> = { programs to recentPrograms },
+                           video: @Composable () -> Unit) {
     var panel by remember(channel.id) { mutableStateOf(false) }
     var guideOpen by remember(channel.id) { mutableStateOf(false) }
-    var guidePrepared by remember(channel.id) { mutableStateOf(false) }
-    LaunchedEffect(channel.id, state.playing) {
-        if (state.playing && !guidePrepared) { delay(300); guidePrepared = true }
-    }
     var activity by remember { mutableIntStateOf(0) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var infoStage by remember(channel.id) { mutableIntStateOf(0) }
+    var infoData by remember(channel.id) { mutableStateOf(emptyList<Program>() to emptyMap<String, Program>()) }
     val focus = remember { FocusRequester() }
     val panelFocus = remember { FocusRequester() }
+    val history = remember(recentChannels, channel.id) { recentChannels.filter { it.id != channel.id }.take(10) }
+    LaunchedEffect(active, channel.id, panel, history.size) {
+        if (!active || !panel || infoStage >= 4 + history.size) return@LaunchedEffect
+        // Build the first visible panel a section per frame. Keeping its measured
+        // content makes subsequent opens cheap, without any channel-switch warmup.
+        now = System.currentTimeMillis()
+        while (infoStage < 4 + history.size) {
+            infoStage++
+            withFrameNanos { }
+        }
+    }
     LaunchedEffect(active) { if (!active) { panel = false; guideOpen = false } }
     LaunchedEffect(state.error, active) { if (active && state.error != null) panel = true }
     LaunchedEffect(panel, guideOpen) {
@@ -81,26 +119,34 @@ internal fun PlayerContent(channel: Channel, programs: List<Program>, state: Pla
             if (native.action == KeyEvent.ACTION_DOWN) onStep(if (code == KeyEvent.KEYCODE_CHANNEL_UP) 1 else -1)
             true
         } else if (!panel && !guideOpen && code in listOf(KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER)) {
-            if (native.action == KeyEvent.ACTION_DOWN) panel = true
+            if (native.action == KeyEvent.ACTION_DOWN) { now = System.currentTimeMillis(); panel = true }
             true
         } else false
     }) {
         video()
         Box(Modifier.size(1.dp).focusRequester(focus).focusable(enabled = active).testTag("player-remote"))
-        if (state.buffering && !panel && !guideOpen) Text("Открываем ${channel.name}…", Modifier.align(Alignment.TopStart).padding(32.dp).background(Color.Black.copy(alpha = .7f)).padding(12.dp))
-        if (panel) {
-            Text(home.iptv.ui.guideDate(now), Modifier.align(Alignment.TopEnd).padding(horizontal = 32.dp, vertical = 18.dp),
-                color = Color.White, fontSize = 17.sp)
-            PlayerInfoOverlay(channel, programs, state, now, panelFocus,
-                recentChannels.filter { it.id != channel.id }.take(10), recentPrograms,
-                onRecent = { onRecent(it); panel = false }, onRetry = onRetry,
-                onGuide = { panel = false; guidePrepared = true; guideOpen = true },
-                modifier = Modifier.align(Alignment.BottomCenter))
+        if (active && state.buffering && !panel && !guideOpen) Text("Открываем ${channel.name}…", Modifier.align(Alignment.TopStart).padding(32.dp).background(Color.Black.copy(alpha = .7f)).padding(12.dp))
+        if (infoStage > 0) {
+            val showInfo = active && panel
+            if (showInfo) infoData = infoPrograms(now)
+            val infoNow = rememberVisibleValue(now, showInfo)
+            val infoState = rememberVisibleValue(state, showInfo)
+            val infoHistory = rememberVisibleValue(history, showInfo)
+            RetainedDashboard(visible = showInfo) {
+                val clock = remember(infoNow / 60_000) { home.iptv.ui.guideDate(infoNow) }
+                Text(clock, Modifier.align(Alignment.TopEnd).padding(horizontal = 32.dp, vertical = 18.dp),
+                    color = Color.White, fontSize = 17.sp)
+                PlayerInfoOverlay(channel, infoData.first, infoState, infoNow, panelFocus,
+                    infoHistory, infoData.second, interactive = showInfo, buildStage = infoStage,
+                    onRecent = { onRecent(it); panel = false }, onRetry = onRetry,
+                    onGuide = { panel = false; guideOpen = true },
+                    modifier = Modifier.align(Alignment.BottomCenter))
+            }
         }
-        if (guidePrepared) Box(Modifier.fillMaxSize()
-            .graphicsLayer { alpha = if (guideOpen) 1f else 0f }
-            .then(if (guideOpen) Modifier else Modifier.clearAndSetSemantics {})) {
-            guide(active && guideOpen) { guideOpen = false }
+        // Programme data stays in the ViewModel cache; a closed grid does no layout
+        // or composition work while the next channel starts. The video stays mounted.
+        if (active && guideOpen) Box(Modifier.fillMaxSize()) {
+            guide(true) { guideOpen = false }
         }
     }
 }

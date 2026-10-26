@@ -43,11 +43,15 @@ data class Download(val input: InputStream?, val etag: String? = null, val modif
 }
 
 class SourceLoader(private val context: Context) {
+    companion object {
+        // Large shared XMLTV feeds are streamed; this bounds input bytes, not heap usage.
+        const val MAX_EPG_BYTES = 512L * 1024 * 1024
+    }
     val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS)
         .callTimeout(5, TimeUnit.MINUTES).followRedirects(true).build()
     suspend fun open(source: Source, force: Boolean = false): Download {
         val uri = Uri.parse(source.location)
-        val max = if (source.kind == Source.EPG) 256L * 1024 * 1024 else 32L * 1024 * 1024
+        val max = if (source.kind == Source.EPG) MAX_EPG_BYTES else 32L * 1024 * 1024
         return if (uri.scheme in listOf("http", "https")) {
             val builder = Request.Builder().url(source.location)
             parseHeaders(source.headers).forEach { (name, value) -> builder.header(name, value) }

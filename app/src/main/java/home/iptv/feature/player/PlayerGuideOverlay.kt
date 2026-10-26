@@ -27,40 +27,42 @@ import home.iptv.ui.*
 @Composable
 fun PlayerGuideOverlay(vm: IptvViewModel, channels: List<Channel>, playingId: String, now: Long,
                        onWatch: (Channel) -> Unit, onClose: () -> Unit, active: Boolean = true) {
-    val position = remember { GuidePosition(playingId, now) }
-    val list = rememberLazyListState(initialFirstVisibleItemIndex = channels.indexOfFirst { it.id == playingId }.coerceAtLeast(0))
-    var start by remember { mutableLongStateOf(now / 3_600_000L * 3_600_000L) }
+    val guideChannels = rememberVisibleValue(channels, active)
+    val guidePlayingId = rememberVisibleValue(playingId, active)
+    val guideNow = rememberVisibleValue(now, active)
+    val position = remember { GuidePosition(guidePlayingId, guideNow) }
+    val list = rememberLazyListState(initialFirstVisibleItemIndex = guideChannels.indexOfFirst { it.id == guidePlayingId }.coerceAtLeast(0))
+    var start by remember { mutableLongStateOf(guideNow / 3_600_000L * 3_600_000L) }
     var details by remember { mutableStateOf<Pair<Channel, Program>?>(null) }
     val detailFocus = remember { FocusRequester() }
     BackHandler(enabled = active && details != null) { details = null }
-    LaunchedEffect(active, playingId, if (active) 0L else now) {
+    LaunchedEffect(active, guidePlayingId) {
+        if (!active) return@LaunchedEffect
         details = null
-        val target = channels.firstOrNull { it.id == playingId }?.id ?: channels.firstOrNull()?.id.orEmpty()
+        val target = guideChannels.firstOrNull { it.id == guidePlayingId }?.id ?: guideChannels.firstOrNull()?.id.orEmpty()
         position.channelState.value = target
-        position.timeState.longValue = now
-        start = now / 3_600_000L * 3_600_000L
-        if (!active) {
-            val index = channels.indexOfFirst { it.id == target }.coerceAtLeast(0)
-            if (list.firstVisibleItemIndex != index || list.firstVisibleItemScrollOffset != 0) list.requestScrollToItem(index)
-        }
+        position.timeState.longValue = guideNow
+        start = guideNow / 3_600_000L * 3_600_000L
+        val index = guideChannels.indexOfFirst { it.id == target }.coerceAtLeast(0)
+        if (list.firstVisibleItemIndex != index || list.firstVisibleItemScrollOffset != 0) list.requestScrollToItem(index)
     }
     Box(Modifier.fillMaxSize().testTag("player-guide-overlay")) {
         Column(Modifier.fillMaxSize().testTag("player-guide-panel")
             .background(Color(0x40101619)).padding(horizontal = 16.dp, vertical = 8.dp)) {
-            GuideScreen(vm, channels, list, now, start, { start = it }, position,
-                playingId = playingId, suspended = details != null || !active, translucent = true, interactive = active,
+            GuideScreen(vm, guideChannels, list, guideNow, start, { start = it }, position,
+                playingId = guidePlayingId, suspended = details != null || !active, translucent = true, interactive = active,
                 header = { channel, program ->
                     Row(Modifier.fillMaxWidth().height(62.dp), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         channel?.let { ChannelLogo(it, Modifier.width(65.dp).height(40.dp)) }
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text(program?.title ?: channel?.name ?: "Телегид", fontSize = 19.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(program?.let { "${guideTime(it.start, now)}–${time(it.end)}  ${it.description}" } ?: "Телепрограмма отсутствует", color = Muted,
+                            Text(program?.let { "${guideTime(it.start, guideNow)}–${time(it.end)}  ${it.description}" } ?: "Телепрограмма отсутствует", color = Muted,
                                 fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }, onProgram = { channel, program ->
-                    if (program == null || now in program.start until program.end) { onWatch(channel); onClose() }
+                    if (program == null || guideNow in program.start until program.end) { onWatch(channel); onClose() }
                     else details = channel to program
                 })
         }

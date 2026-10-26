@@ -6,11 +6,13 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.work.*
 import androidx.work.testing.WorkManagerTestInitHelper
 import home.iptv.core.database.IptvDatabase
-import home.iptv.core.model.Source
+import home.iptv.core.database.Repository
+import home.iptv.core.model.*
 import home.iptv.core.network.SourceLoader
 import home.iptv.sync.ImportCoordinator
 import home.iptv.sync.RefreshScheduler
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okio.Buffer
@@ -22,6 +24,9 @@ import org.robolectric.annotation.Config
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPOutputStream
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
@@ -50,6 +55,38 @@ class NetworkAndScheduleTest {
         assertEquals("Fri, 23 Oct 2026 09:00:00 GMT", request.getHeader("If-Modified-Since"))
         assertEquals(before, db.dao().channels(source.id))
         assertNull(db.dao().source(source.id)?.error)
+    }
+    @Test fun newManualBindingReloadsUnchangedEpgWithoutHttpValidators() = runBlocking {
+        WorkManagerTestInitHelper.initializeTestWorkManager(context, Configuration.Builder().setExecutor { it.run() }.build())
+        val importer = ImportCoordinator(db, SourceLoader(context))
+        val repository = Repository(db, importer, RefreshScheduler(context))
+        val source = Source(kind = Source.EPG, name = "epg", location = server.url("/epg").toString())
+        val channel = Channel(playlistId = "p", name = "One", streamUrl = "https://example.org/one")
+        db.dao().saveSource(source)
+        db.dao().saveChannels(listOf(channel))
+        val now = System.currentTimeMillis()
+        val format = DateTimeFormatter.ofPattern("uuuuMMddHHmmss Z").withZone(ZoneOffset.UTC)
+        val start = format.format(Instant.ofEpochMilli(now))
+        val stop = format.format(Instant.ofEpochMilli(now + 3_600_000))
+        val xml = "<tv><channel id=\"one\"><display-name>One</display-name></channel>" +
+            "<programme channel=\"one\" start=\"$start\" stop=\"$stop\"><title>News</title></programme></tv>"
+        fun response() = MockResponse().setHeader("ETag", "v1")
+            .setHeader("Last-Modified", "Fri, 23 Oct 2026 09:00:00 GMT").setBody(xml)
+        server.enqueue(response())
+        assertTrue(importer.refresh(source.id))
+        server.takeRequest()
+        assertEquals(0, db.dao().source(source.id)?.count)
+        server.enqueue(response())
+        repository.setMapping(ChannelEpgMapping(channel.id, source.id, "one", ChannelEpgMapping.MANUAL))
+        val request = server.takeRequest(5, TimeUnit.SECONDS)
+        assertNotNull(request)
+        assertNull(request!!.getHeader("If-None-Match"))
+        assertNull(request.getHeader("If-Modified-Since"))
+        assertEquals("News", db.dao().programs(listOf(channel.id), now, now + 60_000).first().single().program.title)
+        assertEquals(1, db.dao().source(source.id)?.count)
+        // An existing imported binding needs no additional download.
+        repository.setMapping(ChannelEpgMapping(channel.id, source.id, "one", ChannelEpgMapping.MANUAL))
+        assertEquals(2, server.requestCount)
     }
     @Test fun httpContentEncodingAndGzipFileAreDecodedExactlyOnce() = runBlocking {
         val body = "<tv>plain xml content</tv>"

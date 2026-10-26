@@ -64,9 +64,9 @@ class IptvViewModel(application: Application, private val saved: SavedStateHandl
                     delay(60_000)
                 }
             }
-            combine(visible, playback, liveWindow) { channels, playing, start ->
-                val target = playing?.channel?.id ?: lastFocused
-                val index = channels.indexOfFirst { it.id == target }.coerceAtLeast(0)
+            // Warm the initial/filtered page, without chasing fullscreen channel changes.
+            combine(visible, liveWindow) { channels, start ->
+                val index = channels.indexOfFirst { it.id == lastFocused }.coerceAtLeast(0)
                 guideQueryIds(channels, index) to start
             }.distinctUntilChanged().collect { (ids, start) ->
                 guideCache.preload(ids, start, start + 2 * hour)

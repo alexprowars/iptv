@@ -96,6 +96,67 @@ class TvUiTest {
         compose.onNodeWithText("Закрыть").performSemanticsAction(SemanticsActions.OnClick) { it() }
         capture("guide.png")
     }
+    @Test fun guideOkChangesPreviewBeforeExpandingTheSameChannel() {
+        show()
+        compose.mainClock.advanceTimeBy(500)
+        val a = hasText("Сейчас A") and hasClickAction()
+        val b = hasText("Сейчас B") and hasClickAction()
+        val initialCell = compose.onNode(a).assertIsFocused().fetchSemanticsNode().id
+        compose.onNode(a).performKeyInput { pressKey(Key.DirectionCenter) }
+        compose.mainClock.advanceTimeBy(200)
+        compose.runOnIdle { Assert.assertEquals("A", vm.playback.value?.channel?.id) }
+        compose.onNodeWithTag("guide-grid").assertIsDisplayed()
+        compose.onNodeWithTag("player-remote").assertDoesNotExist()
+        compose.onNode(a).assertIsFocused().performKeyInput { pressKey(Key.DirectionDown) }
+        compose.mainClock.advanceTimeBy(100)
+        // Browsing alone keeps the previous channel in the preview.
+        compose.runOnIdle { Assert.assertEquals("A", vm.playback.value?.channel?.id) }
+        compose.onNode(b).assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
+        compose.mainClock.advanceTimeBy(200)
+        compose.runOnIdle { Assert.assertEquals("B", vm.playback.value?.channel?.id) }
+        compose.onNodeWithTag("guide-grid").assertIsDisplayed()
+        compose.onNodeWithTag("player-remote").assertDoesNotExist()
+        val preview = vm.playback.value
+        compose.onNode(b).assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
+        compose.mainClock.advanceTimeBy(300)
+        compose.onNodeWithTag("player-remote").assertIsFocused()
+        compose.onNodeWithTag("guide-grid").assertDoesNotExist()
+        compose.runOnIdle {
+            Assert.assertSame(preview, vm.playback.value)
+            compose.activity.onBackPressedDispatcher.onBackPressed()
+        }
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNode(b).assertIsFocused().performKeyInput { pressKey(Key.DirectionUp) }
+        compose.mainClock.advanceTimeBy(100)
+        compose.onNode(a).assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
+        compose.mainClock.advanceTimeBy(200)
+        compose.runOnIdle { Assert.assertEquals("A", vm.playback.value?.channel?.id) }
+        compose.onNodeWithTag("guide-grid").assertIsDisplayed()
+        compose.onNodeWithTag("player-remote").assertDoesNotExist()
+        Assert.assertEquals(initialCell, compose.onNode(a).assertIsFocused().fetchSemanticsNode().id)
+    }
+    @Test fun guideWithoutEpgAlsoRequiresSecondOkToExpand() {
+        runBlocking {
+            vm.dao.saveChannels(listOf(Channel(id = "no-epg", playlistId = "playlist", name = "Без EPG",
+                streamUrl = "http://127.0.0.1:1/no-epg", position = 2)))
+        }
+        show()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Нет программы").fetchSemanticsNodes().isNotEmpty() }
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNode(hasText("Сейчас A") and hasClickAction()).performKeyInput { pressKey(Key.DirectionDown) }
+        compose.mainClock.advanceTimeBy(100)
+        compose.onNode(hasText("Сейчас B") and hasClickAction()).performKeyInput { pressKey(Key.DirectionDown) }
+        compose.mainClock.advanceTimeBy(100)
+        val gap = hasText("Нет программы") and hasClickAction() and isFocused()
+        compose.onNode(gap).performKeyInput { pressKey(Key.DirectionCenter) }
+        compose.mainClock.advanceTimeBy(200)
+        compose.runOnIdle { Assert.assertEquals("no-epg", vm.playback.value?.channel?.id) }
+        compose.onNodeWithTag("guide-grid").assertIsDisplayed()
+        compose.onNodeWithTag("player-remote").assertDoesNotExist()
+        compose.onNode(gap).assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
+        compose.mainClock.advanceTimeBy(300)
+        compose.onNodeWithTag("player-remote").assertIsFocused()
+    }
     @Test fun leftAtLiveOpensMenuAndRightReturnsToTheSameProgramWithoutAButton() {
         show()
         compose.mainClock.advanceTimeBy(500)
@@ -166,6 +227,12 @@ class TvUiTest {
         compose.onNodeWithText("Закрыть").assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
         compose.mainClock.advanceTimeBy(100)
         compose.onNodeWithText("Добавить в избранное").assertDoesNotExist()
+        compose.onNode(hasText("Сейчас A") and hasClickAction()).assertIsFocused()
+            .performKeyInput { pressKey(Key.DirectionCenter) }
+        compose.mainClock.advanceTimeBy(100)
+        compose.runOnIdle { Assert.assertEquals("A", vm.playback.value?.channel?.id) }
+        compose.onNodeWithTag("guide-grid").assertIsDisplayed()
+        compose.onNodeWithTag("player-remote").assertDoesNotExist()
         compose.onNode(hasText("Сейчас A") and hasClickAction()).assertIsFocused()
             .performKeyInput { pressKey(Key.DirectionCenter) }
         compose.mainClock.advanceTimeBy(100)
@@ -465,6 +532,7 @@ class TvUiTest {
             position.timeState.longValue = now
         }
         compose.waitUntil(10_000) {
+            compose.onAllNodesWithText("сб, 24 окт, 12:00").fetchSemanticsNodes().isEmpty() &&
             compose.onAllNodes(isFocused() and hasText("Нет программы")).fetchSemanticsNodes().size == 1
         }
         compose.onNode(isFocused() and hasClickAction()).performKeyInput { pressKey(Key.DirectionLeft) }
@@ -639,6 +707,10 @@ class TvUiTest {
             textureHeight = texture.height
             Assert.assertTrue(textureWidth > 0 && textureHeight > 0)
         }
+        compose.onNode(hasText("Сейчас A") and hasClickAction()).performKeyInput { pressKey(Key.DirectionCenter) }
+        compose.mainClock.advanceTimeBy(200)
+        compose.onNodeWithTag("guide-grid").assertIsDisplayed()
+        compose.onNodeWithTag("player-remote").assertDoesNotExist()
         repeat(3) { attempt ->
             if (attempt < 2) compose.onNode(hasText("Сейчас A") and hasClickAction())
                 .performSemanticsAction(SemanticsActions.OnClick) { it() }
@@ -817,18 +889,21 @@ class TvUiTest {
         compose.mainClock.advanceTimeBy(100)
         compose.onNodeWithTag("player-remote").assertIsFocused()
     }
-    @Test fun playerPreparesAndRetainsHiddenGuideWithoutStealingFocus() {
+    @Test fun playerLoadsGuideOnDemandAndRemovesClosedGridBeforeChannelChanges() {
         var guideMounted = 0
         var guideDisposed = 0
+        var guideRendered = 0
         val now = System.currentTimeMillis()
-        val channel = Channel(id = "direct", playlistId = "", name = "Прямой поток", streamUrl = "http://127.0.0.1:1/a")
+        var channel by mutableStateOf(Channel(id = "direct", playlistId = "", name = "Прямой поток", streamUrl = "http://127.0.0.1:1/a"))
         compose.setContent {
             val channels by vm.channels.collectAsState()
+            val selected = channel
             IPTVTheme {
-                PlayerContent(channel, emptyList(), PlaybackController.State(playing = true), {}, {}, {}, {},
+                PlayerContent(selected, emptyList(), PlaybackController.State(playing = true), {}, {}, {}, {},
                     guide = { active, close ->
+                        SideEffect { guideRendered++ }
                         DisposableEffect(Unit) { guideMounted++; onDispose { guideDisposed++ } }
-                        PlayerGuideOverlay(vm, channels, channel.id, now, {}, close, active)
+                        PlayerGuideOverlay(vm, channels, selected.id, now, {}, close, active)
                     }, video = { Box(Modifier) })
             }
         }
@@ -837,13 +912,14 @@ class TvUiTest {
         compose.onNodeWithTag("player-remote").assertIsFocused()
         compose.onNodeWithTag("player-guide-overlay").assertDoesNotExist()
         compose.onAllNodesWithText("Сейчас A").assertCountEquals(0)
-        compose.runOnIdle { Assert.assertEquals(1, guideMounted) }
-        fun openGuide() {
+        compose.runOnIdle { Assert.assertEquals(0, guideMounted) }
+        fun openGuide(title: String = "Сейчас A") {
             compose.onNodeWithTag("player-remote").performKeyInput { pressKey(Key.DirectionDown) }
             compose.mainClock.advanceTimeBy(100)
             compose.onNodeWithText("Телегид").performKeyInput { pressKey(Key.DirectionCenter) }
-            compose.mainClock.advanceTimeBy(100)
-            compose.onNode(hasText("Сейчас A") and hasClickAction()).assertIsFocused()
+            compose.waitUntil(10_000) {
+                compose.onAllNodes(hasText(title) and hasClickAction() and isFocused()).fetchSemanticsNodes().size == 1
+            }
         }
         openGuide()
         compose.onNode(hasText("Сейчас A") and hasClickAction()).performKeyInput { pressKey(Key.DirectionRight) }
@@ -853,13 +929,22 @@ class TvUiTest {
         compose.mainClock.advanceTimeBy(100)
         compose.onNodeWithTag("player-guide-overlay").assertDoesNotExist()
         compose.onNodeWithTag("player-remote").assertIsFocused()
-        openGuide()
+        compose.runOnIdle { Assert.assertEquals(1, guideDisposed) }
+        val closedRenders = guideRendered
+        compose.runOnIdle { channel = vm.channels.value.single { it.id == "B" } }
+        compose.mainClock.advanceTimeBy(1000)
+        compose.onNodeWithTag("player-remote").assertIsFocused()
         compose.runOnIdle {
-            Assert.assertEquals(1, guideMounted)
-            Assert.assertEquals(0, guideDisposed)
+            Assert.assertEquals(1, guideMounted); Assert.assertEquals(1, guideDisposed)
+            Assert.assertEquals("A closed guide must not recompose on channel changes", closedRenders, guideRendered)
+        }
+        openGuide("Сейчас B")
+        compose.runOnIdle {
+            Assert.assertEquals(2, guideMounted)
+            Assert.assertEquals(1, guideDisposed)
         }
     }
-    @Test fun inactivePlayerPreparesGuideWithoutTakingFocusOrBack() {
+    @Test fun inactivePlayerDoesNotBuildGuideOrTakeFocusOrBack() {
         var active by mutableStateOf(false)
         var outerBack = 0
         var playerBack = 0
@@ -884,7 +969,7 @@ class TvUiTest {
         compose.mainClock.advanceTimeBy(1000)
         compose.onNodeWithText("Список каналов").assertIsFocused()
         compose.runOnIdle {
-            Assert.assertEquals(1, mounted)
+            Assert.assertEquals(0, mounted)
             compose.activity.onBackPressedDispatcher.onBackPressed()
             Assert.assertEquals(1, outerBack)
             Assert.assertEquals(0, playerBack)
@@ -899,7 +984,167 @@ class TvUiTest {
         }
         compose.mainClock.advanceTimeBy(100)
         compose.onNodeWithText("Список каналов").assertIsFocused()
-        compose.runOnIdle { Assert.assertEquals(1, mounted); Assert.assertEquals(0, disposed) }
+        compose.runOnIdle { Assert.assertEquals(0, mounted); Assert.assertEquals(0, disposed) }
+    }
+    @Test fun playerQueriesProgrammesOnlyWhileInformationPanelIsVisible() {
+        val a = Channel(id = "A", playlistId = "playlist", name = "Канал A", streamUrl = "http://127.0.0.1:1/a")
+        val b = a.copy(id = "B", name = "Канал B")
+        var channel by mutableStateOf(a)
+        val requests = mutableListOf<List<String>>()
+        var subscriptions = 0
+        compose.setContent { IPTVTheme {
+            val controller = home.iptv.feature.player.rememberPlaybackController(null, "", false, {})
+            home.iptv.feature.player.PlayerScreen(channel, listOf(a, b), { ids, _, _ ->
+                kotlinx.coroutines.flow.flow {
+                    requests += ids
+                    subscriptions++
+                    try {
+                        emit(emptyList<ChannelProgram>())
+                        kotlinx.coroutines.awaitCancellation()
+                    } finally { subscriptions-- }
+                }
+            }, {}, {}, {}, controller, active = true, guide = { _, _ -> })
+        } }
+        compose.mainClock.advanceTimeBy(1000)
+        repeat(4) { step ->
+            compose.runOnIdle { channel = if (step % 2 == 0) b else a }
+            compose.mainClock.advanceTimeBy(500)
+        }
+        compose.runOnIdle { Assert.assertTrue(requests.isEmpty()); Assert.assertEquals(0, subscriptions) }
+        compose.onNodeWithTag("player-remote").performKeyInput { pressKey(Key.DirectionDown) }
+        compose.mainClock.advanceTimeBy(100)
+        compose.runOnIdle {
+            Assert.assertEquals(listOf(listOf("A"), listOf("B")), requests)
+            Assert.assertEquals(2, subscriptions)
+            compose.activity.onBackPressedDispatcher.onBackPressed()
+        }
+        compose.mainClock.advanceTimeBy(100)
+        compose.runOnIdle {
+            Assert.assertEquals(0, subscriptions)
+            channel = b
+        }
+        compose.mainClock.advanceTimeBy(1000)
+        compose.runOnIdle { Assert.assertEquals(2, requests.size); Assert.assertEquals(0, subscriptions) }
+        compose.onNodeWithTag("player-remote").performKeyInput { pressKey(Key.DirectionDown) }
+        compose.mainClock.advanceTimeBy(100)
+        compose.runOnIdle {
+            Assert.assertEquals(listOf(listOf("B"), listOf("A")), requests.takeLast(2))
+            Assert.assertEquals(2, subscriptions)
+        }
+    }
+    @Test fun informationPanelUsesCachedProgramsBeforeTheDatabaseResponds() {
+        val now = System.currentTimeMillis()
+        val a = Channel(id = "A", playlistId = "playlist", name = "Канал A", streamUrl = "http://127.0.0.1:1/a")
+        val b = a.copy(id = "B", name = "Канал B")
+        val current = Program(sourceId = "epg", generation = "g", epgId = "A", start = now - 60_000,
+            end = now + 600_000, title = "Из кеша A", description = "Описание из кеша")
+        val next = current.copy(id = "next", start = current.end, end = now + 3_600_000, title = "Далее из кеша")
+        val history = current.copy(id = "history", epgId = "B", title = "Из кеша B")
+        val updates = kotlinx.coroutines.flow.MutableSharedFlow<List<ChannelProgram>>(replay = 1)
+        compose.setContent { IPTVTheme {
+            val controller = home.iptv.feature.player.rememberPlaybackController(null, "", false, {})
+            home.iptv.feature.player.PlayerScreen(a, listOf(a, b), { _, _, _ -> updates }, {}, {}, {},
+                controller, active = true, initialPrograms = { _, _, _ -> mapOf("A" to listOf(current, next), "B" to listOf(history)) },
+                guide = { _, _ -> })
+        } }
+        compose.mainClock.advanceTimeBy(100)
+        compose.onNodeWithTag("player-remote").performKeyInput { pressKey(Key.DirectionDown) }
+        compose.mainClock.advanceTimeBy(100)
+        compose.onNodeWithText("Из кеша A").assertIsDisplayed()
+        compose.onNodeWithText("Описание из кеша").assertIsDisplayed()
+        compose.onNodeWithText("Далее из кеша", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Из кеша B").assertIsDisplayed()
+        compose.onNodeWithText("Телепрограмма отсутствует").assertDoesNotExist()
+        compose.runOnIdle {
+            updates.tryEmit(listOf(ChannelProgram(current.copy(title = "Обновлённая передача"), "A"),
+                ChannelProgram(next, "A"), ChannelProgram(history, "B")))
+        }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Обновлённая передача").fetchSemanticsNodes().size == 1 }
+        compose.onNodeWithText("Телегид").assertIsFocused()
+    }
+    @Test fun closedInformationDoesNotPrepareDuringOrAfterChannelChanges() {
+        val a = Channel(id = "A", playlistId = "playlist", name = "Канал A", streamUrl = "http://127.0.0.1:1/a")
+        val b = a.copy(id = "B", name = "Канал B")
+        var channel by mutableStateOf(a)
+        var requests = 0
+        var collectors = 0
+        compose.setContent { IPTVTheme {
+            PlayerContent(channel, emptyList(), PlaybackController.State(playing = true, firstFrameMs = 100),
+                {}, {}, {}, {}, infoPrograms = { _ ->
+                    DisposableEffect(Unit) {
+                        requests++
+                        collectors++
+                        onDispose { collectors-- }
+                    }
+                    emptyList<Program>() to emptyMap<String, Program>()
+                }, video = {})
+        } }
+        repeat(4) { step ->
+            compose.mainClock.advanceTimeBy(400)
+            compose.runOnIdle { channel = if (step % 2 == 0) b else a }
+        }
+        compose.runOnIdle { Assert.assertEquals(0, requests) }
+        compose.mainClock.advanceTimeBy(1500)
+        compose.onNodeWithTag("player-remote").assertIsFocused()
+        compose.onNodeWithText("Телегид").assertDoesNotExist()
+        compose.runOnIdle {
+            Assert.assertEquals(0, requests)
+            Assert.assertEquals(0, collectors)
+        }
+        compose.onNodeWithTag("player-remote").performKeyInput { pressKey(Key.DirectionDown) }
+        compose.mainClock.advanceTimeBy(100)
+        compose.onNodeWithText("Телегид").assertIsFocused()
+        compose.runOnIdle {
+            Assert.assertEquals(1, requests)
+            compose.activity.onBackPressedDispatcher.onBackPressed()
+        }
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithTag("player-remote").assertIsFocused()
+        compose.runOnIdle { Assert.assertEquals(0, collectors); Assert.assertEquals(1, requests) }
+    }
+    @Test fun confirmOpeningInformationDoesNotAlsoOpenTheGuide() {
+        val channel = Channel(id = "A", playlistId = "playlist", name = "Канал A", streamUrl = "http://127.0.0.1:1/a")
+        compose.setContent { IPTVTheme {
+            PlayerContent(channel, emptyList(), PlaybackController.State(), {}, {}, {}, {},
+                guide = { _, _ -> androidx.tv.material3.Text("Открытый телегид") }, video = {})
+        } }
+        compose.mainClock.advanceTimeBy(100)
+        sendConfirm(android.view.KeyEvent.ACTION_DOWN)
+        compose.mainClock.advanceTimeBy(100)
+        compose.onNodeWithText("Телегид").assertIsFocused()
+        sendConfirm(android.view.KeyEvent.ACTION_UP)
+        compose.mainClock.advanceTimeBy(100)
+        compose.onNodeWithText("Телегид").assertIsDisplayed()
+        compose.onNodeWithText("Открытый телегид").assertDoesNotExist()
+        compose.onNodeWithText("Телегид").performKeyInput { pressKey(Key.DirectionCenter) }
+        compose.mainClock.advanceTimeBy(100)
+        compose.onNodeWithText("Открытый телегид").assertIsDisplayed()
+    }
+    @Test fun retainedInformationShowsHistoryLoadedAfterTheFirstOpen() {
+        val a = Channel(id = "A", playlistId = "playlist", name = "Канал A", streamUrl = "http://127.0.0.1:1/a")
+        val b = a.copy(id = "B", name = "Канал B")
+        val c = a.copy(id = "C", name = "Канал C")
+        var history by mutableStateOf(emptyList<Channel>())
+        compose.setContent { IPTVTheme {
+            PlayerContent(a, emptyList(), PlaybackController.State(), {}, {}, {}, {},
+                recentChannels = history, video = {})
+        } }
+        compose.mainClock.advanceTimeBy(100)
+        compose.onNodeWithTag("player-remote").performKeyInput { pressKey(Key.DirectionDown) }
+        compose.mainClock.advanceTimeBy(100)
+        compose.onNodeWithText("Телегид").assertIsFocused()
+        compose.runOnIdle { history = listOf(a, b) }
+        compose.mainClock.advanceTimeBy(100)
+        compose.onNodeWithContentDescription("Смотреть Канал B").assertIsDisplayed()
+        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.mainClock.advanceTimeBy(100)
+        compose.runOnIdle { history = listOf(a, b, c) }
+        compose.mainClock.advanceTimeBy(100)
+        compose.onNodeWithContentDescription("Смотреть Канал C").assertDoesNotExist()
+        compose.onNodeWithTag("player-remote").performKeyInput { pressKey(Key.DirectionDown) }
+        compose.mainClock.advanceTimeBy(100)
+        compose.onNodeWithContentDescription("Смотреть Канал C").assertIsDisplayed()
+        compose.onNodeWithText("Телегид").assertIsFocused()
     }
     @Test fun overlayGuideKeepsVideoMountedAndSupportsFutureProgramsAndChannelSelection() {
         var chosen = ""

@@ -34,6 +34,101 @@ class DatabaseImportTest {
     }
     @After fun cleanup() { db.close(); file.delete() }
     private fun playlist(vararg entries: Pair<String, String>) = "#EXTM3U\n" + entries.joinToString("\n") { (id, url) -> "#EXTINF:-1 tvg-id=\"$id\",Channel $id\n$url" }
+    private fun epg(vararg channels: Pair<String, String>): String {
+        val format = DateTimeFormatter.ofPattern("uuuuMMddHHmmss Z").withZone(ZoneOffset.UTC)
+        val now = System.currentTimeMillis()
+        val start = format.format(Instant.ofEpochMilli(now))
+        val stop = format.format(Instant.ofEpochMilli(now + 3_600_000))
+        return "<tv>" + channels.joinToString("") { (id, name) ->
+            "<channel id=\"$id\"><display-name>$name</display-name></channel>"
+        } + channels.distinctBy { it.first }.joinToString("") { (id, _) ->
+            "<programme channel=\"$id\" start=\"$start\" stop=\"$stop\"><title>Show $id</title><desc>Description $id</desc></programme>"
+        } + "</tv>"
+    }
+    private fun storedProgramIds(): List<String> = db.openHelper.readableDatabase
+        .query("SELECT epgId FROM programs ORDER BY epgId").use { cursor ->
+            buildList { while (cursor.moveToNext()) add(cursor.getString(0)) }
+        }
+    @Test fun firstEpgImportStoresOnlyAvailableMappedChannelsAndKeepsFullCatalogue() = runBlocking {
+        val dao = db.dao()
+        val source = Source(kind = Source.EPG, name = "epg", location = file.toURI().toString())
+        val other = Source(kind = Source.EPG, name = "preferred", location = "", generation = "g")
+        dao.saveSource(source); dao.saveSource(other)
+        dao.saveEpgChannels(listOf(EpgChannel(other.id, "g", "preferred", "Preferred")))
+        dao.saveLinks(listOf(PlaylistEpg("p", other.id, 0), PlaylistEpg("p", source.id, 1)))
+        fun channel(id: String, name: String = id, tvgId: String = id) =
+            Channel(id = id, playlistId = "p", name = name, tvgId = tvgId, streamUrl = "https://example.org/$id")
+        dao.saveChannels(listOf(channel("exact"), channel("alias-match", "Alias HD", "missing"),
+            channel("manual", tvgId = "wrong-auto"), channel("disabled"), channel("unavailable").copy(available = false),
+            channel("ambiguous", "Ambiguous", ""), channel("priority", "Preferred", ""), channel("unmatched")))
+        dao.saveMappings(listOf(ChannelEpgMapping("manual", source.id, "manual-target", ChannelEpgMapping.MANUAL),
+            ChannelEpgMapping("disabled", mode = ChannelEpgMapping.DISABLED)))
+        file.writeText(epg("exact" to "Exact", "alias" to "Alias SD", "alias" to "Alias HD",
+            "manual-target" to "Manual", "wrong-auto" to "Wrong", "disabled" to "Disabled",
+            "unavailable" to "Unavailable", "ambiguous-a" to "Ambiguous", "ambiguous-b" to "Ambiguous",
+            "lower-priority" to "Preferred", "unused" to "Unused"))
+        assertTrue(importer.refresh(source.id))
+        assertEquals(listOf("alias", "exact", "manual-target"), storedProgramIds())
+        assertEquals(3, dao.source(source.id)?.count)
+        assertEquals(10, dao.epgChannels().count { it.sourceId == source.id })
+        assertEquals("Alias SD\nAlias HD", dao.epgChannels().single { it.externalId == "alias" }.names)
+        assertEquals("alias", dao.mappings().single { it.channelId == "alias-match" }.epgId)
+        assertEquals(other.id, dao.mappings().single { it.channelId == "priority" }.sourceId)
+        assertFalse(dao.mappings().any { it.channelId == "ambiguous" })
+    }
+    @Test fun noMatchesPublishesCatalogueWithZeroProgramsAndRemovesPreviouslyImportedPrograms() = runBlocking {
+        val dao = db.dao()
+        val source = Source(kind = Source.EPG, name = "epg", location = file.toURI().toString(), generation = "old")
+        dao.saveSource(source)
+        val now = System.currentTimeMillis()
+        dao.savePrograms(listOf(Program(sourceId = source.id, generation = "old", epgId = "unused",
+            start = now, end = now + 3_600_000, title = "Old unfiltered show")))
+        file.writeText(epg("unused" to "Unused"))
+        assertTrue(importer.refresh(source.id))
+        assertTrue(storedProgramIds().isEmpty())
+        assertEquals(0, dao.source(source.id)?.count)
+        assertNull(dao.source(source.id)?.error)
+        assertEquals("unused", dao.epgChannels().single().externalId)
+    }
+    @Test fun playlistImportedAfterEpgLoadsProgramsForNewAutomaticMatches() = runBlocking {
+        val epgFile = File.createTempFile("iptv-epg", ".xml")
+        try {
+            val source = Source(kind = Source.EPG, name = "epg", location = epgFile.toURI().toString())
+            val playlist = Source(name = "playlist", location = file.toURI().toString())
+            db.dao().saveSource(source); db.dao().saveSource(playlist)
+            db.dao().saveLinks(listOf(PlaylistEpg(playlist.id, source.id, 0)))
+            epgFile.writeText(epg("one" to "One", "unused" to "Unused"))
+            assertTrue(importer.refresh(source.id))
+            assertTrue(storedProgramIds().isEmpty())
+            file.writeText(playlist("one" to "https://example.org/one"))
+            assertTrue(importer.refresh(playlist.id))
+            assertEquals(listOf("one"), storedProgramIds())
+        } finally { epgFile.delete() }
+    }
+    @Test fun catalogueChangeLoadsProgramsFromFallbackSource() = runBlocking {
+        val fallbackFile = File.createTempFile("iptv-fallback", ".xml")
+        try {
+            val dao = db.dao()
+            val primary = Source(kind = Source.EPG, name = "primary", location = file.toURI().toString())
+            val fallback = Source(kind = Source.EPG, name = "fallback", location = fallbackFile.toURI().toString())
+            val channel = Channel(playlistId = "p", name = "One", streamUrl = "https://example.org/one")
+            dao.saveSource(primary); dao.saveSource(fallback)
+            dao.saveChannels(listOf(channel))
+            dao.saveLinks(listOf(PlaylistEpg("p", primary.id, 0), PlaylistEpg("p", fallback.id, 1)))
+            file.writeText(epg("primary-one" to "One"))
+            fallbackFile.writeText(epg("fallback-one" to "One"))
+            assertTrue(importer.refresh(primary.id))
+            assertTrue(importer.refresh(fallback.id))
+            assertEquals(listOf("primary-one"), storedProgramIds())
+            assertEquals(0, dao.source(fallback.id)?.count)
+            // The primary catalogue no longer identifies this channel. Its binding moves to
+            // the fallback, whose programmes were deliberately skipped on its first import.
+            file.writeText(epg("unrelated" to "Unrelated"))
+            assertTrue(importer.refresh(primary.id))
+            assertEquals(fallback.id, dao.mappings().single().sourceId)
+            assertEquals(listOf("fallback-one"), storedProgramIds())
+        } finally { fallbackFile.delete() }
+    }
     @Test fun malformedPlaylistDoesNotEraseCatalogOrFavorites() = runBlocking {
         val source = Source(name = "test", location = file.toURI().toString())
         db.dao().saveSource(source)

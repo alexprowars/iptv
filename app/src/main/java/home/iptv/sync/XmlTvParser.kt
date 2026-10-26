@@ -1,6 +1,8 @@
 package home.iptv.sync
 
 import home.iptv.core.model.*
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.io.InputStream
@@ -9,17 +11,19 @@ import java.time.*
 import java.time.format.DateTimeFormatter
 
 object XmlTvParser {
+    private val timestampFormat = DateTimeFormatter.ofPattern("uuuuMMddHHmmss")
     private val stamp = Regex("^(\\d{14}|\\d{12}|\\d{10}|\\d{8})(?:\\s*([+-]\\d{4}|Z))?$")
     private val ignoredDoctype = Regex("""\s*tv(?:\s+SYSTEM\s+(?:"[^"<>\[\]]*"|'[^'<>\[\]]*')|\s+PUBLIC\s+(?:"[^"<>\[\]]*"|'[^'<>\[\]]*')\s+(?:"[^"<>\[\]]*"|'[^'<>\[\]]*'))?\s*""")
     fun timestamp(value: String): Long {
         val match = stamp.matchEntire(value.trim()) ?: throw ImportException("Некорректное время XMLTV")
-        val local = LocalDateTime.parse(match.groupValues[1].padEnd(14, '0'), DateTimeFormatter.ofPattern("uuuuMMddHHmmss"))
+        val local = LocalDateTime.parse(match.groupValues[1].padEnd(14, '0'), timestampFormat)
         // XMLTV specifies UTC when the timezone is absent.
         val zone = match.groupValues[2].ifBlank { "Z" }
         return local.toInstant(ZoneOffset.of(zone)).toEpochMilli()
     }
     suspend fun parse(input: InputStream, source: Source, generation: String, now: Long,
-                      onChannel: suspend (EpgChannel) -> Unit, onProgram: suspend (Program) -> Unit): Int {
+                      onChannel: suspend (EpgChannel) -> Unit, onProgram: suspend (Program) -> Unit,
+                      selectPrograms: suspend (List<EpgChannel>) -> Set<String>? = { null }): Int {
         val parser = XmlPullParserFactory.newInstance().newPullParser()
         parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
         // Some XmlPull implementations cannot set this optional feature, but report it disabled.
@@ -31,6 +35,10 @@ object XmlTvParser {
         var root = false
         var closed = false
         var count = 0
+        var validCount = 0
+        var programmesStarted = false
+        var selectedIds: Set<String>? = null
+        var selected = true
         val channelNames = HashMap<String, List<String>>()
         var aliasCharacters = 0
         val programmeChannels = HashSet<String>()
@@ -43,6 +51,13 @@ object XmlTvParser {
         var title = ""; var description = ""
         var field: String? = null
         val text = StringBuilder()
+        var fieldLength = 0
+        fun appendText(value: String) {
+            fieldLength += value.length
+            if (fieldLength > 32_768) throw ImportException("Слишком длинное поле XMLTV")
+            // Still validate ignored fields, without retaining descriptions for unrelated channels.
+            if (field != "desc" || selected) text.append(value)
+        }
         while (true) {
             when (parser.nextToken()) {
                 XmlPullParser.END_DOCUMENT -> break
@@ -56,9 +71,22 @@ object XmlTvParser {
                     if (parser.depth > 16) throw ImportException("Слишком глубокий XMLTV")
                     if (parser.depth == 1) { if (parser.name != "tv") throw ImportException("Ожидается XMLTV с корнем tv"); root = true }
                     when (parser.name) {
-                        "channel" -> if (parser.depth == 2) { channelId = parser.getAttributeValue(null, "id").orEmpty(); names = mutableListOf(); channelLogo = "" }
+                        "channel" -> if (parser.depth == 2) {
+                            // XMLTV places the channel catalogue before programmes. Do not publish
+                            // an incomplete selection if a provider violates that order.
+                            if (programmesStarted && selectedIds != null) throw ImportException("XMLTV: описание канала должно предшествовать передачам")
+                            channelId = parser.getAttributeValue(null, "id").orEmpty(); names = mutableListOf(); channelLogo = ""
+                        }
                         "programme" -> if (parser.depth == 2) {
+                            currentCoroutineContext().ensureActive()
+                            if (!programmesStarted) {
+                                selectedIds = selectPrograms(channelNames.map { (id, aliases) ->
+                                    EpgChannel(source.id, generation, id, aliases.joinToString("\n"), logo = channelLogos[id].orEmpty())
+                                })
+                                programmesStarted = true
+                            }
                             programId = parser.getAttributeValue(null, "channel").orEmpty()
+                            selected = selectedIds?.contains(programId) ?: true
                             val shift = source.timeShiftMinutes * 60_000L
                             start = timestamp(parser.getAttributeValue(null, "start").orEmpty()) + shift
                             end = timestamp(parser.getAttributeValue(null, "stop").orEmpty()) + shift
@@ -69,15 +97,15 @@ object XmlTvParser {
                             val resolved = runCatching { java.net.URI(source.location).resolve(raw) }.getOrNull()
                             if (raw.isNotBlank() && resolved?.scheme in listOf("http", "https") && !resolved?.host.isNullOrBlank()) channelLogo = resolved.toString()
                         }
-                        "display-name", "title", "desc" -> if (parser.depth == 3) { field = parser.name; text.setLength(0) }
+                        "display-name", "title", "desc" -> if (parser.depth == 3) { field = parser.name; text.setLength(0); fieldLength = 0 }
                     }
                 }
                 XmlPullParser.ENTITY_REF -> {
                     val entity = parser.name.orEmpty()
                     if (entity !in setOf("amp", "lt", "gt", "apos", "quot") && !entity.startsWith('#')) throw ImportException("XML-сущности запрещены")
-                    if (field != null) text.append(parser.text.orEmpty())
+                    if (field != null) appendText(parser.text.orEmpty())
                 }
-                XmlPullParser.TEXT, XmlPullParser.CDSECT -> if (field != null) text.append(parser.text)
+                XmlPullParser.TEXT, XmlPullParser.CDSECT -> if (field != null) appendText(parser.text)
                 XmlPullParser.END_TAG -> {
                     if (parser.depth == 3 && parser.name == field) {
                         val value = text.toString().trim()
@@ -98,18 +126,25 @@ object XmlTvParser {
                         channelId = ""
                     }
                     if (parser.depth == 2 && parser.name == "programme") {
-                        if (programId.isBlank() || programId.length > 1024 || title.isBlank()) throw ImportException("XMLTV: передача без канала или названия")
                         // Providers sometimes include zero-length markers or reversed intervals.
-                        // Discard those records without inventing a duration or aborting the feed.
-                        if (end > start && end > from && start < to) { programmeChannels += programId; onProgram(Program(sourceId = source.id, generation = generation, epgId = programId, start = start, end = end, title = title, description = description)); count++ }
+                        // Validate required fields only for records we will actually import;
+                        // an old or unbound programme must not abort the selected schedule.
+                        if (end > start && end > from && start < to) {
+                            if (programId in channelNames && title.isNotBlank()) validCount++
+                            if (selected) {
+                                if (programId.isBlank() || programId.length > 1024 || title.isBlank()) throw ImportException("XMLTV: передача без канала или названия")
+                                programmeChannels += programId
+                                onProgram(Program(sourceId = source.id, generation = generation, epgId = programId, start = start, end = end, title = title, description = description))
+                                count++
+                            }
+                        }
                     }
                     if (parser.depth == 1 && parser.name == "tv") closed = true
                 }
             }
-            if (text.length > 32_768) throw ImportException("Слишком длинное поле XMLTV")
         }
         if (!root || !closed) throw ImportException("XMLTV повреждён или загружен не полностью; прежняя программа сохранена")
-        if (count == 0 || channelNames.isEmpty()) throw ImportException("В XMLTV нет передач за выбранный период; прежняя программа сохранена")
+        if (validCount == 0 || channelNames.isEmpty()) throw ImportException("В XMLTV нет передач за выбранный период; прежняя программа сохранена")
         if (!channelNames.keys.containsAll(programmeChannels)) throw ImportException("XMLTV: передача ссылается на неизвестный канал")
         return count
     }

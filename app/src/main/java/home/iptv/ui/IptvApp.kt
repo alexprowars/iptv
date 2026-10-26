@@ -93,27 +93,17 @@ fun IptvApp(vm: IptvViewModel = viewModel()) {
             alignedWithPlayback = true
         }
     }
-    // Prepare the returning cursor while the dashboard is hidden, including channel changes.
-    LaunchedEffect(fullscreen, dashboard, playback?.channel?.id, now) {
-        if (fullscreen && dashboard) playback?.channel?.let { channel ->
-            guidePosition.channelState.value = channel.id
-            guidePosition.timeState.longValue = now
-            guideStart = now / 3_600_000L * 3_600_000L
-        }
-    }
-    fun watch(channel: Channel) {
+    fun watch(channel: Channel, expand: Boolean = true) {
         android.util.Log.i("IPTV_REMOTE", "watch channel_menu=${actions != null}")
         alignedWithPlayback = true
         vm.play(channel, visible)
-        if (vm.playback.value?.channel?.id == channel.id) fullscreen = true
+        if (expand && vm.playback.value?.channel?.id == channel.id) fullscreen = true
     }
     fun returnFromPlayer(destination: String = screen) {
-        // Reuse the cursor already aligned with the dashboard clock. Updating it again would
-        // invalidate the header and selected row during the video animation.
+        // Restore the cursor on return; channel switches leave the hidden grid untouched.
         vm.playback.value?.channel?.let { channel ->
             val prepared = dashboard && destination == screen && guidePosition.channelState.value == channel.id &&
                 guidePosition.timeState.longValue == now && guideStart == now / 3_600_000L * 3_600_000L
-            // Back may arrive before the hidden dashboard handles a channel change.
             if (!prepared) {
                 val liveTime = System.currentTimeMillis()
                 now = liveTime
@@ -130,7 +120,9 @@ fun IptvApp(vm: IptvViewModel = viewModel()) {
     fun program(channel: Channel, item: Program?) {
         android.util.Log.i("IPTV_REMOTE", "programme_click channel_menu=${actions != null}")
         if (dashboardInputBlocked()) return
-        if (item == null || currentNow.value in item.start until item.end) watch(channel)
+        if (item == null || currentNow.value in item.start until item.end) {
+            watch(channel, expand = vm.playback.value?.channel?.id == channel.id)
+        }
         else description = channel to item
     }
     BackHandler(enabled = !fullscreen && !dashboardInputBlocked()) {
@@ -162,6 +154,9 @@ fun IptvApp(vm: IptvViewModel = viewModel()) {
                 Text("${time(now)}  ·  ${visible.size} каналов", color = Muted, style = MaterialTheme.typography.labelSmall)
             }
     }
+    val dashboardChannels = rememberVisibleValue(visible, !fullscreen)
+    val dashboardPlaying = rememberVisibleValue(playback?.channel, !fullscreen)
+    val dashboardNow = rememberVisibleValue(now, !fullscreen)
     Box(Modifier.fillMaxSize().background(if (fullscreen) Color.Black else MaterialTheme.colorScheme.background)) {
         PlaybackVideoHost(fullscreen, visible = playback != null && (dashboard || fullscreen), previewBounds) { modifier ->
             VideoSurface(controller, fullscreen && preferences.fill, modifier)
@@ -170,32 +165,29 @@ fun IptvApp(vm: IptvViewModel = viewModel()) {
         if (selection != null && (dashboard || fullscreen)) Box(Modifier.fillMaxSize()
             .graphicsLayer { alpha = if (fullscreen) 1f else 0f }
             .then(if (fullscreen) Modifier else Modifier.clearAndSetSemantics {})) {
-            val programs by remember(selection.channel.id, now / 60_000) { vm.dao.programs(listOf(selection.channel.id), now, now + 12 * 3_600_000L) }.collectAsState(emptyList())
-            val recentIds = remember(recentChannels) { recentChannels.map { it.id } }
-            val recentPrograms by remember(recentIds, now / 60_000) { vm.dao.programs(recentIds, now, now + 1) }.collectAsState(emptyList())
             val enriched = channels.find { it.id == selection.channel.id } ?: selection.channel
-            PlayerScreen(enriched, programs.map { it.program }, recentChannels,
-                recentPrograms.associate { it.channelId to it.program }, vm::step,
+            PlayerScreen(enriched, recentChannels, vm.dao::programs, vm::step,
                 onRecent = { channel ->
                     val queue = if (visible.any { it.id == channel.id }) visible else channels.also { vm.setFilter("all") }
                     vm.play(channel, queue)
                 }, onBack = { returnFromPlayer() }, controller = controller, active = fullscreen,
+                initialPrograms = { ids, from, to -> vm.guideCache.snapshot(ids, from, to).programs },
                 guide = { active, close -> PlayerGuideOverlay(vm, visible, enriched.id, now,
                     onWatch = { channel -> vm.play(channel, visible) }, onClose = close, active = active) })
         }
         if (dashboard) RetainedDashboard(visible = !fullscreen) {
             Box(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-                GuideScreen(vm, visible, guideState, now, guideStart, { guideStart = it }, guidePosition,
+                GuideScreen(vm, dashboardChannels, guideState, dashboardNow, guideStart, { guideStart = it }, guidePosition,
                     onMenu = { openNavigationMenu() }, onActions = {
                         android.util.Log.i("IPTV_REMOTE", "programme_long_click fullscreen=$fullscreen")
                         actions = it
                     },
                     suspended = fullscreen || menuOpen || actions != null || description != null || notice != null,
-                    playingId = selection?.channel?.id,
-                    header = { channel, item -> DashboardHeader(controller, selection?.channel, channel, item, now,
+                    playingId = dashboardPlaying?.id,
+                    header = { channel, item -> DashboardHeader(controller, dashboardPlaying, channel, item, dashboardNow,
                         onWatch = {
                             android.util.Log.i("IPTV_REMOTE", "preview_click channel_menu=${actions != null}")
-                            if (selection != null && !dashboardInputBlocked()) fullscreen = true
+                            if (dashboardPlaying != null && !dashboardInputBlocked()) fullscreen = true
                         }, onRetry = controller::retry,
                         onPreviewBounds = { if (!fullscreen) previewBounds = it }) },
                     onProgram = ::program)

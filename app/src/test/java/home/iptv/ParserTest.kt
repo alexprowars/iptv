@@ -148,6 +148,51 @@ class ParserTest {
             assertTrue(input.take(50), failed)
         }
     }
+    @Test fun selectiveImportAllowsNoMatchesButStillValidatesTheFeed() = runTest {
+        val source = Source(kind = Source.EPG, name = "test", location = "")
+        val channels = mutableListOf<EpgChannel>()
+        val programs = mutableListOf<Program>()
+        val count = XmlTvParser.parse(xml.byteInputStream(), source, "g", now, { channels += it }, { programs += it },
+            selectPrograms = { catalogue ->
+                assertEquals("Ёлка & TV", catalogue.single().names)
+                emptySet()
+            })
+        assertEquals(0, count)
+        assertEquals(1, channels.size)
+        assertTrue(programs.isEmpty())
+        for (invalid in listOf(xml.dropLast(8), xml.replace("20261023", "20251023"),
+            xml.replace("Новости", ""), xml.replace("Описание", "a".repeat(32_769)),
+            xml.replace("channel=\"one\"", "channel=\"missing\""))) {
+            var failed = false
+            try { XmlTvParser.parse(invalid.byteInputStream(), source, "g", now, {}, {}, selectPrograms = { emptySet() }) }
+            catch (_: Exception) { failed = true }
+            assertTrue(invalid.take(60), failed)
+        }
+    }
+    @Test fun selectiveImportRejectsLateChannelDeclarationsRatherThanPublishingPartialMatches() = runTest {
+        val input = xml.replace("</tv>", "<channel id=\"two\"><display-name>Two</display-name></channel></tv>")
+        var failed = false
+        try { XmlTvParser.parse(input.byteInputStream(), Source(name = "test", location = ""), "g", now, {}, {}, selectPrograms = { emptySet() }) }
+        catch (_: ImportException) { failed = true }
+        assertTrue(failed)
+    }
+    @Test fun oldOrUnboundMissingTitlesDoNotAbortSelectedPrograms() = runTest {
+        val source = Source(kind = Source.EPG, name = "test", location = "")
+        val old = """<programme channel="one" start="20261019000000 +0300" stop="20261019020000 +0300"><title/></programme>"""
+        val unbound = """<programme channel="unused" start="20261023120000 +0300" stop="20261023130000 +0300"><title/></programme>"""
+        val input = xml.replace("</channel>", "</channel><channel id=\"unused\"><display-name>Unused</display-name></channel>")
+            .replace("</tv>", old + unbound + "</tv>")
+        val programs = mutableListOf<Program>()
+        val count = XmlTvParser.parse(input.byteInputStream(), source, "g", now, {}, { programs += it }, selectPrograms = { setOf("one") })
+        assertEquals(1, count)
+        assertEquals("Новости", programs.single().title)
+        // Time filtering also precedes validation when all channels are requested.
+        assertEquals(1, XmlTvParser.parse(xml.replace("</tv>", old + "</tv>").byteInputStream(), source, "g", now, {}, {}))
+        var failed = false
+        try { XmlTvParser.parse(input.byteInputStream(), source, "g", now, {}, {}, selectPrograms = { setOf("one", "unused") }) }
+        catch (_: ImportException) { failed = true }
+        assertTrue("A malformed selected programme must still preserve the previous generation", failed)
+    }
     @Test fun boundsDecompressedBytes() {
         val compressed = ByteArrayOutputStream().apply { GZIPOutputStream(this).use { it.write(ByteArray(20_000)) } }.toByteArray()
         assertThrows(ImportException::class.java) { decodedStream(compressed.inputStream(), 1_000).use { it.readBytes() } }

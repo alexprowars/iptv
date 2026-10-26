@@ -42,6 +42,7 @@ class Repository(val db: IptvDatabase, private val importer: ImportCoordinator, 
                 importer.remap()
             }
         }
+        importer.refreshMissingPrograms()
     }
     suspend fun toggleFavorite(id: String) = db.withTransaction {
         val all = dao.favorites()
@@ -56,20 +57,29 @@ class Repository(val db: IptvDatabase, private val importer: ImportCoordinator, 
         val item = all.removeAt(index); all.add(target, item)
         dao.saveFavorites(all.mapIndexed { rank, favorite -> favorite.copy(rank = rank) })
     }
-    suspend fun setMapping(mapping: ChannelEpgMapping) = db.withTransaction {
-        dao.saveMappings(listOf(mapping)); importer.remap()
+    suspend fun setMapping(mapping: ChannelEpgMapping) {
+        db.withTransaction {
+            dao.saveMappings(listOf(mapping)); importer.remap()
+        }
+        importer.refreshMissingPrograms()
     }
-    suspend fun setEpgSources(playlistId: String, ids: List<String>) = db.withTransaction {
-        dao.deleteLinks(playlistId)
-        dao.saveLinks(ids.mapIndexed { priority, id -> PlaylistEpg(playlistId, id, priority) })
-        importer.remap()
+    suspend fun setEpgSources(playlistId: String, ids: List<String>) {
+        db.withTransaction {
+            dao.deleteLinks(playlistId)
+            dao.saveLinks(ids.mapIndexed { priority, id -> PlaylistEpg(playlistId, id, priority) })
+            importer.remap()
+        }
+        importer.refreshMissingPrograms()
     }
-    suspend fun replaceChannel(oldId: String, newId: String) = db.withTransaction {
-        val old = dao.channel(oldId) ?: return@withTransaction
-        val new = dao.channel(newId) ?: return@withTransaction
-        require(!old.available && new.available && old.playlistId == new.playlistId) { "Выберите доступный канал из того же плейлиста" }
-        val favorite = dao.favorites().firstOrNull { it.channelId == oldId }
-        if (favorite != null) { dao.removeFavorite(oldId); dao.saveFavorites(listOf(favorite.copy(channelId = newId))) }
-        dao.mappings().firstOrNull { it.channelId == oldId && it.mode != ChannelEpgMapping.AUTO }?.let { dao.saveMappings(listOf(it.copy(channelId = newId))) }
+    suspend fun replaceChannel(oldId: String, newId: String) {
+        db.withTransaction {
+            val old = dao.channel(oldId) ?: return@withTransaction
+            val new = dao.channel(newId) ?: return@withTransaction
+            require(!old.available && new.available && old.playlistId == new.playlistId) { "Выберите доступный канал из того же плейлиста" }
+            val favorite = dao.favorites().firstOrNull { it.channelId == oldId }
+            if (favorite != null) { dao.removeFavorite(oldId); dao.saveFavorites(listOf(favorite.copy(channelId = newId))) }
+            dao.mappings().firstOrNull { it.channelId == oldId && it.mode != ChannelEpgMapping.AUTO }?.let { dao.saveMappings(listOf(it.copy(channelId = newId))) }
+        }
+        importer.refreshMissingPrograms()
     }
 }

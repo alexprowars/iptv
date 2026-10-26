@@ -19,10 +19,18 @@ class ImportCoordinator(private val db: IptvDatabase, private val loader: Source
     val progress = running.asStateFlow()
     suspend fun <T> locked(id: String, block: suspend () -> T): T = locks.getOrPut(id) { Mutex() }.withLock { block() }
 
-    suspend fun refresh(id: String, force: Boolean = false): Boolean = withContext(Dispatchers.IO) {
-        // A simultaneous foreground/background request joins the existing operation by skipping it.
+    suspend fun refresh(id: String, force: Boolean = false): Boolean {
+        val success = refreshSource(id, force)
+        // Refreshing a catalogue can move an automatic binding to another EPG source.
+        // Fill those gaps after releasing this source's lock, at most once per source.
+        if (success) refreshMissingPrograms(excludeId = id)
+        return success
+    }
+
+    private suspend fun refreshSource(id: String, force: Boolean): Boolean = withContext(Dispatchers.IO) {
+        // A mapping change needs a fresh selection even if an older import is still running.
         val mutex = locks.getOrPut(id) { Mutex() }
-        if (!mutex.tryLock()) return@withContext true
+        if (force) mutex.lock() else if (!mutex.tryLock()) return@withContext true
         try {
             val source = dao.source(id) ?: return@withContext true
             val now = System.currentTimeMillis()
@@ -64,6 +72,14 @@ class ImportCoordinator(private val db: IptvDatabase, private val loader: Source
                                 dao.savePrograms(programs); processed += programs.size; programs.clear()
                                 running.update { it + (id to "Импорт: $processed передач") }
                             }
+                        }, selectPrograms = { catalogue ->
+                            // Use this download's complete catalogue, including merged aliases, so
+                            // automatic matches work on the very first import and after ID changes.
+                            val candidates = dao.epgChannels().filter { it.sourceId != id } + catalogue
+                            val mappings = resolveMappings(candidates)
+                            val available = dao.allChannels().filter { it.available }.map { it.id }.toSet()
+                            mappings.filter { it.sourceId == id && it.mode != ChannelEpgMapping.DISABLED && it.channelId in available }
+                                .map { it.epgId }.toSet()
                         })
                         if (channels.isNotEmpty()) dao.saveEpgChannels(channels)
                         if (programs.isNotEmpty()) dao.savePrograms(programs)
@@ -95,13 +111,31 @@ class ImportCoordinator(private val db: IptvDatabase, private val loader: Source
     }
 
     suspend fun remap() {
-        val fixed = dao.mappings().filter { it.mode != ChannelEpgMapping.AUTO }.map { it.channelId }.toSet()
-        val links = dao.links()
-        val epg = dao.epgChannels()
-        val index = EpgIndex(epg)
-        val maps = dao.allChannels().filter { it.id !in fixed }.mapNotNull { index.match(it, links) }
+        val maps = resolveMappings(dao.epgChannels())
         dao.deleteAutoMappings()
-        dao.saveMappings(maps)
+        dao.saveMappings(maps.filter { it.mode == ChannelEpgMapping.AUTO })
+    }
+
+    private suspend fun resolveMappings(epg: List<EpgChannel>): List<ChannelEpgMapping> {
+        val fixed = dao.mappings().filter { it.mode != ChannelEpgMapping.AUTO }
+        val fixedIds = fixed.map { it.channelId }.toSet()
+        val links = dao.links()
+        val index = EpgIndex(epg)
+        return fixed + dao.allChannels().filter { it.id !in fixedIds }.mapNotNull { index.match(it, links) }
+    }
+
+    /** New bindings cannot rely on programmes that selective imports deliberately omitted. */
+    suspend fun refreshMissingPrograms(excludeId: String? = null) {
+        val attempted = mutableSetOf<String>()
+        excludeId?.let { attempted += it }
+        while (true) {
+            val missing = dao.sourcesMissingPrograms(System.currentTimeMillis()).filter { it !in attempted }
+            if (missing.isEmpty()) return
+            for (id in missing) {
+                attempted += id
+                refreshSource(id, force = true)
+            }
+        }
     }
 }
 
