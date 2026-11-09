@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import home.iptv.ui.theme.IptvColors
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -48,7 +49,7 @@ fun PlayerGuideOverlay(vm: IptvViewModel, channels: List<Channel>, playingId: St
     }
     Box(Modifier.fillMaxSize().testTag("player-guide-overlay")) {
         Column(Modifier.fillMaxSize().testTag("player-guide-panel")
-            .background(Color(0x40101619)).padding(horizontal = 16.dp, vertical = 8.dp)) {
+            .background(IptvColors.Background.copy(alpha = .75f)).padding(horizontal = 16.dp, vertical = 8.dp)) {
             GuideScreen(vm, guideChannels, list, guideNow, start, { start = it }, position,
                 playingId = guidePlayingId, suspended = details != null || !active, translucent = true, interactive = active,
                 header = { channel, program ->
@@ -68,7 +69,7 @@ fun PlayerGuideOverlay(vm: IptvViewModel, channels: List<Channel>, playingId: St
         }
         details?.let { (channel, program) ->
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .5f)), contentAlignment = Alignment.Center) {
-                Column(Modifier.width(650.dp).background(Color(0xF01C242A)).padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Column(Modifier.width(650.dp).background(IptvColors.Surface, androidx.compose.foundation.shape.RoundedCornerShape(20.dp)).padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Text(program.title, fontSize = 21.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text("${channel.name} · ${dateTime(program.start)}–${time(program.end)}", color = Muted, fontSize = 14.sp)
                     Text(program.description.ifBlank { "Описание отсутствует" }, maxLines = 5, overflow = TextOverflow.Ellipsis, fontSize = 15.sp)

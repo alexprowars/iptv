@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import home.iptv.ui.theme.IptvColors
 import androidx.compose.ui.focus.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -54,18 +55,18 @@ fun ChannelsScreen(vm: IptvViewModel, list: List<Channel>, listState: LazyListSt
                 TvButton("", onClick = { vm.play(channel, list) }, onLongClick = { onActions(channel) },
                     modifier = Modifier.weight(1f).height(78.dp).then(if (channel.id == target) Modifier.focusRequester(focus) else Modifier)
                         .onFocusChanged { if (it.isFocused) vm.lastFocused = channel.id }) {
-                    Text("${index + 1}", color = Muted, modifier = Modifier.width(36.dp))
-                    if (channel.logo.startsWith("http")) AsyncImage(model = channel.logo, contentDescription = null, modifier = Modifier.size(44.dp))
+                    Text("${index + 1}", color = LocalContentColor.current.copy(alpha = .8f), modifier = Modifier.width(36.dp))
+                    ChannelLogo(channel, Modifier.size(44.dp))
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text("${if (channel.id in starIds) "★  " else ""}${channel.name}", maxLines = 1)
-                        Text(if (!channel.available) "Недоступен" else current?.title ?: "Нет программы", maxLines = 1, color = Muted, style = MaterialTheme.typography.bodySmall)
+                        Text(if (!channel.available) "Недоступен" else current?.title ?: "Нет программы", maxLines = 1, color = LocalContentColor.current.copy(alpha = .8f), style = MaterialTheme.typography.bodySmall)
                         current?.let {
                             val fraction = ((now - it.start).toFloat() / (it.end - it.start)).coerceIn(0f, 1f)
-                            Box(Modifier.fillMaxWidth().height(2.dp).background(Color(0xFF425461))) { Box(Modifier.fillMaxWidth(fraction).height(2.dp).background(Accent)) }
+                            Box(Modifier.fillMaxWidth().height(2.dp).background(IptvColors.Outline)) { Box(Modifier.fillMaxWidth(fraction).height(2.dp).background(Accent)) }
                         }
                     }
-                    current?.let { Text(timeRange(it), color = Muted, style = MaterialTheme.typography.labelSmall) }
+                    current?.let { Text(timeRange(it), color = LocalContentColor.current.copy(alpha = .8f), style = MaterialTheme.typography.labelSmall) }
                 }
                 TvButton("⋯", { onActions(channel) })
             }

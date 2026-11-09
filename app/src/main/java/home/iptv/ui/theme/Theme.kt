@@ -3,17 +3,20 @@ package home.iptv.ui.theme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.tv.material3.LocalContentColor
-import androidx.compose.ui.graphics.Color
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.darkColorScheme
 
 @Composable
 fun IPTVTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = darkColorScheme(
-        primary = Color(0xFF90CAF9), onPrimary = Color(0xFF101820),
-        background = Color(0xFF121619), surface = Color(0xFF202427),
-        onSurface = Color(0xFFF0F5F7), onBackground = Color(0xFFF0F5F7)
+        primary = IptvColors.Accent, onPrimary = IptvColors.OnAccent,
+        primaryContainer = IptvColors.Selected, onPrimaryContainer = IptvColors.Text,
+        secondary = IptvColors.Accent, onSecondary = IptvColors.OnAccent,
+        background = IptvColors.Background, onBackground = IptvColors.Text,
+        surface = IptvColors.Surface, onSurface = IptvColors.Text,
+        surfaceVariant = IptvColors.Elevated, onSurfaceVariant = IptvColors.Muted,
+        border = IptvColors.Outline, error = IptvColors.Error
     ), typography = Typography) {
-        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground, content = content)
+        CompositionLocalProvider(LocalContentColor provides IptvColors.Text, content = content)
     }
 }

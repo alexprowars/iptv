@@ -15,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import home.iptv.ui.theme.IptvColors
 import androidx.compose.ui.focus.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -175,7 +176,7 @@ fun GuideScreen(vm: IptvViewModel, channels: List<Channel>, listState: LazyListS
                     }
                 }
             }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF303538)))
+            Box(Modifier.fillMaxWidth().height(1.dp).background(IptvColors.Outline))
             if (channels.isEmpty()) Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("Здесь пока нет каналов", style = MaterialTheme.typography.headlineSmall)
                 onMenu?.let { TvButton("Источники", it) }
@@ -228,7 +229,7 @@ private fun GuideChannelRow(channelIndex: Int, channel: Channel, channels: List<
             ChannelLogo(channel, Modifier.width(50.dp).height(30.dp))
             Text(channel.name, Modifier.weight(1f).padding(start = 12.dp), maxLines = 1,
                 overflow = TextOverflow.Ellipsis, fontSize = 14.sp, fontWeight = FontWeight.Medium,
-                color = if (active) Accent else Color(0xFFF0F1F2))
+                color = if (active) Accent else IptvColors.Text)
             if (active) Text("▶", color = Accent, fontSize = 12.sp)
         }
         Box(Modifier.weight(1f).fillMaxHeight()) {
@@ -270,9 +271,9 @@ private fun GuideChannelRow(channelIndex: Int, channel: Channel, channels: List<
                             }, onLongClick = onActions?.let { { it(channel) } }, enabled = interactive && slot.end > now,
                         contentKey = slot.program?.id ?: slot.start,
                         containerColor = if (translucent) {
-                            if (slot.program == null) Color(0x4D1C2023) else Color(0x6623282C)
-                        } else if (slot.program == null) Color(0xFF1C2023) else Color(0xFF23282C),
-                        focusedContainerColor = if (translucent) Color(0xCCDFE2E5) else Color(0xFFDFE2E5)) {
+                            if (slot.program == null) IptvColors.Surface.copy(alpha = .8f) else IptvColors.Elevated.copy(alpha = .9f)
+                        } else if (slot.program == null) IptvColors.Surface else IptvColors.Elevated,
+                        focusedContainerColor = IptvColors.Focus) {
                         Text(slot.program?.title ?: "Нет программы", maxLines = 1,
                             overflow = TextOverflow.Ellipsis, fontSize = 14.sp, fontWeight = FontWeight.Normal)
                     }

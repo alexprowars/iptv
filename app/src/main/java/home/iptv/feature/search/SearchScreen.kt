@@ -27,10 +27,25 @@ fun SearchScreen(vm: IptvViewModel, onProgram: (Channel, Program) -> Unit) {
     val programs by remember(debounced) { if (debounced.isBlank()) flowOf(emptyList()) else vm.dao.searchPrograms(normalize(debounced), System.currentTimeMillis() - 86_400_000L) }.collectAsState(emptyList())
     val channelMap = remember(all) { all.associateBy { it.id } }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Input("Название канала или передачи", query, vm::setQuery, Modifier.focusRequester(firstField))
+        SectionCard {
+            Text("Найдите, что посмотреть", style = MaterialTheme.typography.titleLarge)
+            Input("Название канала или передачи", query, vm::setQuery, Modifier.focusRequester(firstField))
+        }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(8.dp)) {
+            if (query.isNotBlank() && channels.isEmpty() && programs.isEmpty()) item {
+                SectionCard {
+                    Text("Ничего не найдено", style = MaterialTheme.typography.titleMedium)
+                    Text("Попробуйте другое название канала или передачи.", color = Muted)
+                }
+            }
             item { Text("Каналы · ${channels.size}", style = MaterialTheme.typography.titleMedium) }
-            items(channels, key = { "channel:${it.id}" }) { channel -> TvButton(channel.name, { vm.play(channel, channels) }, Modifier.fillMaxWidth()) }
+            items(channels, key = { "channel:${it.id}" }) { channel ->
+                TvButton(channel.name, { vm.play(channel, channels) }, Modifier.fillMaxWidth()) {
+                    ChannelLogo(channel, Modifier.size(36.dp))
+                    Spacer(Modifier.width(14.dp))
+                    Text(channel.name, maxLines = 1)
+                }
+            }
             item { Text("Передачи${if (programs.size == 150) " · первые 150, уточните запрос" else " · ${programs.size}"}", style = MaterialTheme.typography.titleMedium) }
             items(programs, key = { "program:${it.channelId}:${it.program.id}" }) { entry ->
                 val channel = channelMap[entry.channelId]

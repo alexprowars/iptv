@@ -88,6 +88,44 @@ class NetworkAndScheduleTest {
         repository.setMapping(ChannelEpgMapping(channel.id, source.id, "one", ChannelEpgMapping.MANUAL))
         assertEquals(2, server.requestCount)
     }
+    @Test fun savingEpgLinksDoesNotWaitForNetworkAndExplicitRefreshLoadsPrograms() = runBlocking {
+        WorkManagerTestInitHelper.initializeTestWorkManager(context, Configuration.Builder().setExecutor { it.run() }.build())
+        val importer = ImportCoordinator(db, SourceLoader(context))
+        val repository = Repository(db, importer, RefreshScheduler(context))
+        val dao = db.dao()
+        val playlist = Source(name = "Playlist", location = "https://example.org/list", intervalHours = 0)
+        val epg = Source(kind = Source.EPG, name = "EPG", location = server.url("/epg").toString(),
+            generation = "catalogue", etag = "old", intervalHours = 0)
+        val channel = Channel(playlistId = playlist.id, name = "One", tvgId = "one", streamUrl = "https://example.org/one")
+        dao.saveSource(playlist); dao.saveSource(epg)
+        dao.saveChannels(listOf(channel))
+        dao.saveEpgChannels(listOf(EpgChannel(epg.id, "catalogue", "one", "One")))
+
+        // The server has no response: saving either side of the association must remain local.
+        withTimeout(5_000) {
+            repository.setEpgPlaylists(epg.id, setOf(playlist.id), refreshPrograms = false)
+        }
+        assertEquals(epg.id, dao.mappings().single().sourceId)
+        assertEquals(0, server.requestCount)
+        repository.setEpgPlaylists(epg.id, emptySet(), refreshPrograms = false)
+        withTimeout(5_000) {
+            repository.setEpgSources(playlist.id, listOf(epg.id), refreshPrograms = false)
+        }
+        assertEquals(epg.id, dao.mappings().single().sourceId)
+        assertEquals(0, server.requestCount)
+
+        val now = System.currentTimeMillis()
+        val format = DateTimeFormatter.ofPattern("uuuuMMddHHmmss Z").withZone(ZoneOffset.UTC)
+        val start = format.format(Instant.ofEpochMilli(now - 60_000))
+        val stop = format.format(Instant.ofEpochMilli(now + 3_600_000))
+        server.enqueue(MockResponse().setBody(
+            """<tv><channel id="one"><display-name>One</display-name></channel><programme channel="one" start="$start" stop="$stop"><title>News</title></programme></tv>"""
+        ))
+        assertTrue(importer.refresh(epg.id, force = true))
+        assertNull(server.takeRequest(5, TimeUnit.SECONDS)!!.getHeader("If-None-Match"))
+        assertEquals("News", dao.programs(listOf(channel.id), now, now + 60_000).first().single().program.title)
+    }
+
     @Test fun httpContentEncodingAndGzipFileAreDecodedExactlyOnce() = runBlocking {
         val body = "<tv>plain xml content</tv>"
         val gzip = ByteArrayOutputStream().apply { GZIPOutputStream(this).use { it.write(body.toByteArray()) } }.toByteArray()

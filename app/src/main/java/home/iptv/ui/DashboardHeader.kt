@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import home.iptv.ui.theme.IptvColors
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -40,8 +41,8 @@ fun guideDate(now: Long): String = DateTimeFormatter.ofPattern("EE, d MMM · HH:
 fun ChannelLogo(channel: Channel, modifier: Modifier = Modifier) {
     var failed by remember(channel.logo) { mutableStateOf(channel.logo.isBlank()) }
     Box(modifier, contentAlignment = Alignment.Center) {
-        if (failed) Box(Modifier.size(28.dp).background(Color(0xFF343A40), RoundedCornerShape(4.dp)), contentAlignment = Alignment.Center) {
-            Text(channel.name.take(2).uppercase(), color = Color(0xFFD7DBDF), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        if (failed) Box(Modifier.size(28.dp).background(IptvColors.Elevated, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+            Text(channel.name.take(2).uppercase(), color = IptvColors.Text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
         if (channel.logo.isNotBlank()) AsyncImage(model = channel.logo, contentDescription = "Логотип ${channel.name}",
             contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize(), onError = { failed = true }, onSuccess = { failed = false })
@@ -58,7 +59,7 @@ fun DashboardHeader(controller: PlaybackController, playing: Channel?, selected:
     Row(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 12.dp).height(180.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
         Box(Modifier.width(320.dp).fillMaxHeight().testTag("dashboard-preview")
             .onGloballyPositioned { onPreviewBounds(it.boundsInRoot()) }
-            .clip(RoundedCornerShape(7.dp))
+            .clip(RoundedCornerShape(14.dp))
             .onFocusChanged {
                 previewFocused = it.isFocused
                 if (!it.isFocused) pressedKeys.clear()
@@ -77,9 +78,9 @@ fun DashboardHeader(controller: PlaybackController, playing: Channel?, selected:
                 false
             }
             .clickable(enabled = playing != null, onClick = onWatch)
-            .border(if (previewFocused) 2.dp else 0.dp, if (previewFocused) Accent else Color.Transparent, RoundedCornerShape(7.dp))) {
+            .border(if (previewFocused) 2.dp else 1.dp, if (previewFocused) Accent else IptvColors.Outline, RoundedCornerShape(14.dp))) {
             if (playing == null) Text("Эфир не выбран", Modifier.align(Alignment.Center).padding(20.dp), color = Muted, fontSize = 14.sp)
-            if (state.buffering) Text("Открываем эфир…", Modifier.align(Alignment.BottomStart).background(Color(0xCC121619)).padding(8.dp), color = Color.White, fontSize = 12.sp)
+            if (state.buffering) Text("Открываем эфир…", Modifier.align(Alignment.BottomStart).background(IptvColors.Background.copy(alpha = .8f)).padding(8.dp), color = Color.White, fontSize = 12.sp)
             if (state.error != null) Column(Modifier.align(Alignment.Center).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Эфир временно недоступен", color = Muted, fontSize = 14.sp)
                 TvButton("Повторить", onRetry)
@@ -87,13 +88,15 @@ fun DashboardHeader(controller: PlaybackController, playing: Channel?, selected:
 
         }
         Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Text(program?.title ?: selected?.name ?: "Ваш эфир", fontSize = 23.sp, fontWeight = FontWeight.SemiBold,
+            Text(if (program != null && now in program.start until program.end) "СЕЙЧАС В ЭФИРЕ" else "ТЕЛЕПРОГРАММА",
+                color = Accent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp)
+            Text(program?.title ?: selected?.name ?: "Ваш эфир", fontSize = 24.sp, fontWeight = FontWeight.SemiBold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (program != null) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("${guideTime(program.start, now)}–${time(program.end)}", color = Muted, fontSize = 15.sp)
                     if (now in program.start until program.end) {
-                        Box(Modifier.width(50.dp).height(3.dp).background(Color(0xFF41474C), RoundedCornerShape(2.dp))) {
+                        Box(Modifier.width(50.dp).height(3.dp).background(IptvColors.Outline, RoundedCornerShape(2.dp))) {
                             Box(Modifier.fillMaxWidth(((now - program.start).toFloat() / (program.end - program.start)).coerceIn(0f, 1f))
                                 .fillMaxHeight().background(Accent))
                         }
@@ -101,7 +104,7 @@ fun DashboardHeader(controller: PlaybackController, playing: Channel?, selected:
                     } else Text(if (program.start > now) "Далее" else "В эфире ранее", color = Accent, fontSize = 14.sp)
                 }
                 Text(program.description.ifBlank { "Описание передачи отсутствует" }, color = Muted, fontSize = 15.sp,
-                    lineHeight = 20.sp, maxLines = 5, overflow = TextOverflow.Ellipsis)
+                    lineHeight = 20.sp, maxLines = 4, overflow = TextOverflow.Ellipsis)
             } else {
                 Text("Телепрограмма для этого канала пока отсутствует", color = Muted, fontSize = 15.sp)
             }

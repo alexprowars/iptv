@@ -32,3 +32,4 @@ __pycache__/
 
 # Markdown files (including nested directories and uppercase extensions)
 *.[mM][dD]
+/screenshots/

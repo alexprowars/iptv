@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import home.iptv.ui.theme.IptvColors
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusProperties
@@ -29,8 +30,8 @@ internal fun GuideProgramCell(onClick: () -> Unit, modifier: Modifier = Modifier
     val pressedKeys = remember(contentKey) { mutableSetOf<Int>() }
     var longPressed by remember(contentKey) { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
-    CompositionLocalProvider(LocalContentColor provides if (focused) Color(0xFF111518) else Color(0xFFE3E5E7)) {
-        Box(modifier.clip(RoundedCornerShape(4.dp))
+    CompositionLocalProvider(LocalContentColor provides if (focused) IptvColors.OnAccent else IptvColors.Text) {
+        Box(modifier.clip(RoundedCornerShape(8.dp))
             .background(if (focused) focusedContainerColor else containerColor)
             .onFocusChanged {
                 focused = it.isFocused

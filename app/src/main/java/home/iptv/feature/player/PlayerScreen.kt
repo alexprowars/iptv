@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import home.iptv.ui.theme.IptvColors
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -125,7 +127,7 @@ internal fun PlayerContent(channel: Channel, programs: List<Program>, state: Pla
     }) {
         video()
         Box(Modifier.size(1.dp).focusRequester(focus).focusable(enabled = active).testTag("player-remote"))
-        if (active && state.buffering && !panel && !guideOpen) Text("Открываем ${channel.name}…", Modifier.align(Alignment.TopStart).padding(32.dp).background(Color.Black.copy(alpha = .7f)).padding(12.dp))
+        if (active && state.buffering && !panel && !guideOpen) Text("Открываем ${channel.name}…", Modifier.align(Alignment.TopStart).padding(32.dp).background(IptvColors.Surface.copy(alpha = .92f), RoundedCornerShape(12.dp)).padding(12.dp))
         if (infoStage > 0) {
             val showInfo = active && panel
             if (showInfo) infoData = infoPrograms(now)
@@ -134,8 +136,10 @@ internal fun PlayerContent(channel: Channel, programs: List<Program>, state: Pla
             val infoHistory = rememberVisibleValue(history, showInfo)
             RetainedDashboard(visible = showInfo) {
                 val clock = remember(infoNow / 60_000) { home.iptv.ui.guideDate(infoNow) }
-                Text(clock, Modifier.align(Alignment.TopEnd).padding(horizontal = 32.dp, vertical = 18.dp),
-                    color = Color.White, fontSize = 17.sp)
+                Text(clock, Modifier.align(Alignment.TopEnd).padding(horizontal = 32.dp, vertical = 18.dp)
+                    .background(IptvColors.Background.copy(alpha = .85f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    color = IptvColors.Text, fontSize = 17.sp)
                 PlayerInfoOverlay(channel, infoData.first, infoState, infoNow, panelFocus,
                     infoHistory, infoData.second, interactive = showInfo, buildStage = infoStage,
                     onRecent = { onRecent(it); panel = false }, onRetry = onRetry,

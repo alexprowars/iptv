@@ -63,13 +63,28 @@ class Repository(val db: IptvDatabase, private val importer: ImportCoordinator, 
         }
         importer.refreshMissingPrograms()
     }
-    suspend fun setEpgSources(playlistId: String, ids: List<String>) {
+    suspend fun setEpgSources(playlistId: String, ids: List<String>, refreshPrograms: Boolean = true) {
         db.withTransaction {
             dao.deleteLinks(playlistId)
             dao.saveLinks(ids.mapIndexed { priority, id -> PlaylistEpg(playlistId, id, priority) })
             importer.remap()
         }
-        importer.refreshMissingPrograms()
+        if (refreshPrograms) importer.refreshMissingPrograms()
+    }
+    suspend fun setEpgPlaylists(sourceId: String, playlistIds: Set<String>, refreshPrograms: Boolean = true) {
+        db.withTransaction {
+            val links = dao.links()
+            for (playlist in dao.sources().filter { it.kind == Source.PLAYLIST }) {
+                val existing = links.filter { it.playlistId == playlist.id }.sortedBy { it.priority }.map { it.sourceId }
+                val updated = if (playlist.id in playlistIds) (existing + sourceId).distinct() else existing - sourceId
+                if (updated != existing) {
+                    dao.deleteLinks(playlist.id)
+                    dao.saveLinks(updated.mapIndexed { priority, id -> PlaylistEpg(playlist.id, id, priority) })
+                }
+            }
+            importer.remap()
+        }
+        if (refreshPrograms) importer.refreshMissingPrograms()
     }
     suspend fun replaceChannel(oldId: String, newId: String) {
         db.withTransaction {

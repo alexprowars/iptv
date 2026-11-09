@@ -15,6 +15,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import home.iptv.ui.theme.IptvColors
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -31,22 +32,22 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-val Muted = Color(0xFFA0A5AA)
-val Accent = Color(0xFF90CAF9)
+val Muted = IptvColors.Muted
+val Accent = IptvColors.Accent
 fun time(value: Long): String = DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(value))
 fun dateTime(value: Long): String = if (value == 0L) "ещё не было" else DateTimeFormatter.ofPattern("dd.MM HH:mm").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(value))
 fun timeRange(program: Program): String = "${time(program.start)}–${time(program.end)}"
 
 @Composable
-fun TvButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, onLongClick: (() -> Unit)? = null, contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 8.dp), containerColor: Color = Color(0xFF222629), focusedContainerColor: Color = Color(0xFFDFE2E5), content: (@Composable RowScope.() -> Unit)? = null) {
+fun TvButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, onLongClick: (() -> Unit)? = null, contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 12.dp), containerColor: Color = IptvColors.Elevated, focusedContainerColor: Color = IptvColors.Focus, cornerRadius: androidx.compose.ui.unit.Dp = 12.dp, content: (@Composable RowScope.() -> Unit)? = null) {
     var longPressed by remember { mutableStateOf(false) }
     val pressedKeys = remember { mutableSetOf<Int>() }
     Button(onClick = { if (!longPressed) onClick(); longPressed = false },
         contentPadding = contentPadding,
-        shape = ButtonDefaults.shape(shape = RoundedCornerShape(4.dp)),
-        colors = ButtonDefaults.colors(containerColor = containerColor, contentColor = Color(0xFFE3E5E7), focusedContainerColor = focusedContainerColor, focusedContentColor = Color(0xFF111518)),
+        shape = ButtonDefaults.shape(shape = RoundedCornerShape(cornerRadius)),
+        colors = ButtonDefaults.colors(containerColor = containerColor, contentColor = IptvColors.Text, focusedContainerColor = focusedContainerColor, focusedContentColor = IptvColors.OnAccent),
         scale = ButtonDefaults.scale(focusedScale = 1f),
-        border = ButtonDefaults.border(focusedBorder = Border(BorderStroke(0.dp, Color.Transparent))), modifier = modifier.then(if (onLongClick != null) Modifier.semantics { onLongClick(label = "Действия канала") { onLongClick(); true } } else Modifier)
+        border = ButtonDefaults.border(focusedBorder = Border(BorderStroke(2.dp, IptvColors.Focus))), modifier = modifier.then(if (onLongClick != null) Modifier.semantics { onLongClick(label = "Действия канала") { onLongClick(); true } } else Modifier)
         .onFocusChanged { if (!it.isFocused) { pressedKeys.clear(); longPressed = false } }
         .onPreviewKeyEvent { event ->
         val key = event.nativeKeyEvent
@@ -82,7 +83,7 @@ fun Input(label: String, value: String, onChange: (String) -> Unit, modifier: Mo
                 onNext = { focusManager.moveFocus(FocusDirection.Down) },
                 onDone = { keyboard?.hide(); focusManager.moveFocus(FocusDirection.Down) }
             ),
-            textStyle = TextStyle(color = Color.White, fontSize = 18.sp), cursorBrush = SolidColor(Accent),
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = IptvColors.Text), cursorBrush = SolidColor(Accent),
             modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused }.onPreviewKeyEvent { event ->
                 val key = event.nativeKeyEvent
                 if (key.keyCode == KeyEvent.KEYCODE_DPAD_UP || key.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
@@ -92,15 +93,36 @@ fun Input(label: String, value: String, onChange: (String) -> Unit, modifier: Mo
                     true
                 } else false
             }
-                .border(if (focused) 2.dp else 1.dp, if (focused) Accent else Color(0xFF425461), RoundedCornerShape(8.dp))
-                .background(Color(0xFF15222D), RoundedCornerShape(8.dp)).padding(14.dp))
+                .border(if (focused) 2.dp else 1.dp, if (focused) Accent else IptvColors.Outline, RoundedCornerShape(12.dp))
+                .background(IptvColors.Surface, RoundedCornerShape(12.dp)).padding(14.dp))
+    }
+}
+
+@Composable
+fun SectionCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    Column(modifier.fillMaxWidth()
+        .background(IptvColors.Surface, RoundedCornerShape(16.dp))
+        .border(1.dp, IptvColors.Outline.copy(alpha = .55f), RoundedCornerShape(16.dp))
+        .padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
+}
+
+@Composable
+fun SettingRow(title: String, description: String, value: String, onClick: () -> Unit) {
+    TvButton(title, onClick, Modifier.fillMaxWidth()) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(description, style = MaterialTheme.typography.bodySmall,
+                color = LocalContentColor.current.copy(alpha = .8f))
+        }
+        Spacer(Modifier.width(20.dp))
+        Text(value, style = MaterialTheme.typography.labelLarge)
     }
 }
 
 @Composable
 fun Modal(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
-        Column(Modifier.widthIn(min = 420.dp, max = 720.dp).background(Color(0xFF1C2934), RoundedCornerShape(16.dp)).padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.widthIn(min = 420.dp, max = 720.dp).background(IptvColors.Surface, RoundedCornerShape(20.dp)).border(1.dp, IptvColors.Outline, RoundedCornerShape(20.dp)).padding(28.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text(title, style = MaterialTheme.typography.headlineSmall)
             content()
         }

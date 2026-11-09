@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import home.iptv.ui.theme.IptvColors
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -85,7 +86,7 @@ internal fun PlayerInfoOverlay(channel: Channel, programs: List<Program>, state:
     val badges = remember(state.videoFormat, state.audioFormat) { streamBadges(state.videoFormat, state.audioFormat) }
     val currentTime = remember(current?.start, current?.end, zone) { current?.let(::timeRange) }
     val nextText = remember(next, zone) { next?.let { "Далее  ${timeRange(it)}  ${it.title}" } }
-    val background = remember { Brush.verticalGradient(listOf(Color.Transparent, Color(0xEC0C1013), Color(0xFA0C1013))) }
+    val background = remember { Brush.verticalGradient(listOf(IptvColors.Background.copy(alpha = .82f), IptvColors.Background.copy(alpha = .95f), IptvColors.Background.copy(alpha = .98f))) }
     Column(modifier.fillMaxWidth().background(background)
         .padding(start = 32.dp, end = 32.dp, top = 54.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(22.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -106,29 +107,29 @@ internal fun PlayerInfoOverlay(channel: Channel, programs: List<Program>, state:
             }
         }
         if (buildStage >= 3) current?.description?.takeIf { it.isNotBlank() }?.let {
-            Text(it, color = Color(0xFFC6CCD1), fontSize = 14.sp, lineHeight = 19.sp,
+            Text(it, color = IptvColors.Muted, fontSize = 14.sp, lineHeight = 19.sp,
                 maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 140.dp))
         }
         if (buildStage >= 4) {
             if (badges.isNotEmpty()) FlowRow(Modifier.padding(start = 140.dp), horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                badges.forEach { label -> Text(label, color = Color(0xFFDFE5E9), fontSize = 11.sp,
-                    modifier = Modifier.background(Color(0xFF3D454C), RoundedCornerShape(3.dp)).padding(horizontal = 7.dp, vertical = 3.dp)) }
+                badges.forEach { label -> Text(label, color = IptvColors.Text, fontSize = 11.sp,
+                    modifier = Modifier.background(IptvColors.Elevated, RoundedCornerShape(3.dp)).padding(horizontal = 7.dp, vertical = 3.dp)) }
             } else Text(if (state.error != null) "Параметры потока недоступны" else "Определяем параметры потока…", color = Muted,
                 fontSize = 12.sp, modifier = Modifier.padding(start = 140.dp))
             current?.let {
-                Box(Modifier.fillMaxWidth().height(3.dp).background(Color(0xFF57616A), RoundedCornerShape(2.dp))) {
+                Box(Modifier.fillMaxWidth().height(3.dp).background(IptvColors.Outline, RoundedCornerShape(2.dp))) {
                     Box(Modifier.fillMaxWidth(((now - it.start).toFloat() / (it.end - it.start)).coerceIn(0f, 1f))
                         .fillMaxHeight().background(Accent))
                 }
             }
         }
-        state.error?.let { Text(it, color = Color(0xFFFFB6AA), fontSize = 13.sp, maxLines = 2) }
+        state.error?.let { Text(it, color = IptvColors.Error, fontSize = 13.sp, maxLines = 2) }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(9.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
             item(key = "guide") {
                 LaunchedEffect(interactive) { if (interactive) { withFrameNanos { }; focus.requestFocus() } }
                 GuideProgramCell({ if (interactive) onGuide() }, Modifier.width(128.dp).height(100.dp).focusRequester(focus).semantics { role = Role.Button },
-                    onLongClick = null, containerColor = Color(0xE6222629), focusedContainerColor = Color(0xFFDFE2E5)) {
+                    onLongClick = null, containerColor = IptvColors.Elevated.copy(alpha = .9f), focusedContainerColor = IptvColors.Focus) {
                     Column(Modifier.fillMaxSize().padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceEvenly) {
                         val ink = LocalContentColor.current
                         Canvas(Modifier.size(32.dp)) {
@@ -145,12 +146,12 @@ internal fun PlayerInfoOverlay(channel: Channel, programs: List<Program>, state:
                 var focused by remember(recent.id) { mutableStateOf(false) }
                 GuideProgramCell({ if (interactive) onRecent(recent) }, Modifier.width(128.dp).height(100.dp)
                     .onFocusChanged { focused = it.isFocused }.semantics { contentDescription = "Смотреть ${recent.name}"; role = Role.Button },
-                    onLongClick = null, containerColor = Color(0xE6222629), focusedContainerColor = Color(0xFFDFE2E5)) {
+                    onLongClick = null, containerColor = IptvColors.Elevated.copy(alpha = .9f), focusedContainerColor = IptvColors.Focus) {
                     Column(Modifier.fillMaxSize().padding(vertical = 7.dp), verticalArrangement = Arrangement.SpaceBetween, horizontalAlignment = Alignment.CenterHorizontally) {
                         ChannelLogo(recent, Modifier.fillMaxWidth().height(53.dp))
-                        Text(program?.title ?: "Нет информации", color = if (focused) Color(0xFF205574) else if (program != null) Accent else Muted,
+                        Text(program?.title ?: "Нет информации", color = if (focused) IptvColors.OnAccent else if (program != null) Accent else Muted,
                             fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Box(Modifier.fillMaxWidth().height(2.dp).background(Color(0xFF535B61))) {
+                        Box(Modifier.fillMaxWidth().height(2.dp).background(IptvColors.Outline)) {
                             program?.let { p -> Box(Modifier.fillMaxWidth(((now - p.start).toFloat() / (p.end - p.start)).coerceIn(0f, 1f))
                                 .fillMaxHeight().background(Accent)) }
                         }
@@ -159,7 +160,7 @@ internal fun PlayerInfoOverlay(channel: Channel, programs: List<Program>, state:
             }
             if (state.error != null) item(key = "retry") {
                 GuideProgramCell({ if (interactive) onRetry() }, Modifier.width(128.dp).height(100.dp).semantics { role = Role.Button }, onLongClick = null,
-                    containerColor = Color(0xE6222629), focusedContainerColor = Color(0xFFDFE2E5)) { Text("Повторить") }
+                    containerColor = IptvColors.Elevated.copy(alpha = .9f), focusedContainerColor = IptvColors.Focus) { Text("Повторить") }
             }
         }
     }

@@ -49,7 +49,7 @@ fun MappingScreen(vm: IptvViewModel, channel: Channel, onDone: () -> Unit) {
                 }
                 if (candidates.isEmpty()) item { Text("Нет совпадений. Добавьте или обновите источник EPG.", color = Muted) }
             }
-            selected?.let { choice -> Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            selected?.let { choice -> SectionCard(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                 Text(choice.names.substringBefore('\n'), style = MaterialTheme.typography.titleLarge)
                 Text(choice.externalId, color = Muted)
                 preview.forEach { Text("${dateTime(it.start)}  ${it.title}") }

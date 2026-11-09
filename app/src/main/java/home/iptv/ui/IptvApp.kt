@@ -12,6 +12,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import home.iptv.ui.theme.IptvColors
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
@@ -132,27 +133,46 @@ fun IptvApp(vm: IptvViewModel = viewModel()) {
     }
     @Composable
     fun NavigationSidebar(modifier: Modifier = Modifier, groupsOnly: Boolean = false) {
-            Column(modifier.width(210.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                Text(if (groupsOnly) "Каналы" else "IPTV", style = MaterialTheme.typography.headlineLarge, color = Accent)
-                Text("Ваш эфир", color = Muted)
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(6.dp), modifier = Modifier.weight(1f)) {
-                    item { TvButton("Все каналы", { vm.setFilter("all"); navigate("channels") }, Modifier.fillMaxWidth().focusRequester(menuFocus)) }
-                    item { TvButton("★ Избранное", { vm.setFilter("favorites"); navigate("channels") }, Modifier.fillMaxWidth()) }
-                    if (!groupsOnly) {
-                        item { TvButton("Телепрограмма", { navigate("guide") }, Modifier.fillMaxWidth()) }
-                        item { TvButton("Поиск", { vm.setFilter("search"); navigate("search") }, Modifier.fillMaxWidth()) }
-                        item { TvButton("Источники", { navigate("sources") }, Modifier.fillMaxWidth()) }
-                        item { TvButton("Настройки", { navigate("settings") }, Modifier.fillMaxWidth()) }
-                    }
-                    if (sources.any { it.kind == Source.PLAYLIST }) item { Text("ПЛЕЙЛИСТЫ", color = Muted, style = MaterialTheme.typography.labelSmall) }
-                    items(sources.filter { it.kind == Source.PLAYLIST }, key = { "source:${it.id}" }) { source ->
-                        TvButton(source.name, { vm.setFilter("playlist:${source.id}"); navigate("channels") }, Modifier.fillMaxWidth())
-                    }
-                    if (groups.isNotEmpty()) item { Text("ГРУППЫ", color = Muted, style = MaterialTheme.typography.labelSmall) }
-                    items(groups, key = { "group:$it" }) { group -> TvButton(group, { vm.setFilter("group:$group"); navigate("channels") }, Modifier.fillMaxWidth()) }
+        val playlistCounts = remember(channels) { channels.groupingBy { it.playlistId }.eachCount() }
+        val groupCounts = remember(channels) { channels.groupingBy { it.groupName }.eachCount() }
+        val showingChannels = screen == "channels" || (groupsOnly && screen == "guide")
+        Column(modifier.width(264.dp).fillMaxHeight()
+            .background(IptvColors.Surface, androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+            .padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            MenuHeader(groupsOnly)
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp),
+                contentPadding = PaddingValues(vertical = 4.dp), modifier = Modifier.weight(1f)) {
+                item { MenuHeading("Смотреть") }
+                item {
+                    MenuEntry("Все каналы", MenuIcon.Channels, showingChannels && filter == "all",
+                        { vm.setFilter("all"); navigate("channels") }, Modifier.focusRequester(menuFocus), channels.size)
                 }
-                Text("${time(now)}  ·  ${visible.size} каналов", color = Muted, style = MaterialTheme.typography.labelSmall)
+                item {
+                    MenuEntry("Избранное", MenuIcon.Favorite, showingChannels && filter == "favorites",
+                        { vm.setFilter("favorites"); navigate("channels") }, count = favorites.size)
+                }
+                if (!groupsOnly) {
+                    item { MenuEntry("Телепрограмма", MenuIcon.Guide, screen == "guide", { navigate("guide") }) }
+                    item { MenuEntry("Поиск", MenuIcon.Search, screen == "search", { vm.setFilter("search"); navigate("search") }) }
+                    item { MenuHeading("Приложение") }
+                    item { MenuEntry("Источники", MenuIcon.Sources, screen == "sources", { navigate("sources") }) }
+                    item { MenuEntry("Настройки", MenuIcon.Settings, screen == "settings", { navigate("settings") }) }
+                }
+                if (sources.any { it.kind == Source.PLAYLIST }) item { MenuHeading("Плейлисты") }
+                items(sources.filter { it.kind == Source.PLAYLIST }, key = { "source:${it.id}" }) { source ->
+                    MenuEntry(source.name, MenuIcon.Playlist, showingChannels && filter == "playlist:${source.id}",
+                        { vm.setFilter("playlist:${source.id}"); navigate("channels") }, count = playlistCounts[source.id] ?: 0)
+                }
+                if (groups.isNotEmpty()) item { MenuHeading("Категории") }
+                items(groups, key = { "group:$it" }) { group ->
+                    MenuEntry(group, MenuIcon.Group, showingChannels && filter == "group:$group",
+                        { vm.setFilter("group:$group"); navigate("channels") }, count = groupCounts[group] ?: 0)
+                }
             }
+            MenuFooter(time(now), visible.size, if (!menuOpen) "→ К разделу    ·    Назад — к каналам"
+                else if (groupsOnly) "← Главное меню    ·    → К просмотру"
+                else "→ К каналам    ·    Назад — выход")
+        }
     }
     val dashboardChannels = rememberVisibleValue(visible, !fullscreen)
     val dashboardPlaying = rememberVisibleValue(playback?.channel, !fullscreen)
@@ -192,7 +212,7 @@ fun IptvApp(vm: IptvViewModel = viewModel()) {
                         onPreviewBounds = { if (!fullscreen) previewBounds = it }) },
                     onProgram = ::program)
             }
-        } else if (!fullscreen) Row(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 22.dp), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+        } else if (!fullscreen) Row(Modifier.fillMaxSize().padding(SidebarOuterPadding), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             NavigationSidebar()
             Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -224,11 +244,23 @@ fun IptvApp(vm: IptvViewModel = viewModel()) {
                         screen == "sources" -> SourcesScreen(vm, { editor = it; attachTo = null }, { source, url -> editor = Source(kind = Source.EPG, name = "EPG · ${source.name}", location = url); attachTo = source.id })
                         screen == "guide" -> GuideScreen(vm, visible, guideState, now, guideStart, { guideStart = it }, guidePosition, onProgram = ::program)
                         screen == "search" -> SearchScreen(vm) { channel, item -> program(channel, item) }
-                        screen == "settings" -> Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                            TvButton("Продолжать последний канал: ${if (preferences.autoResume) "да" else "нет"}", { vm.run { vm.graph.preferences.autoResume(!preferences.autoResume) } })
-                            TvButton("Изображение: ${if (preferences.fill) "заполнить" else "вписать"}", { vm.run { vm.graph.preferences.fill(!preferences.fill) } })
-                            TvButton("Открыть поток по URL", { direct = true })
-                            Text("IPTV ${BuildConfig.VERSION_NAME}", color = Muted)
+                        screen == "settings" -> LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(8.dp)) {
+                            item { SectionCard {
+                                Text("Просмотр", style = MaterialTheme.typography.titleLarge)
+                                SettingRow("Продолжать последний канал", "Возобновлять эфир при запуске приложения",
+                                    if (preferences.autoResume) "Включено" else "Выключено",
+                                    { vm.run { vm.graph.preferences.autoResume(!preferences.autoResume) } })
+                                SettingRow("Размер изображения", "Как видео размещается на экране",
+                                    if (preferences.fill) "Заполнить" else "Вписать",
+                                    { vm.run { vm.graph.preferences.fill(!preferences.fill) } })
+                            } }
+                            item { SectionCard {
+                                Text("Прямой эфир", style = MaterialTheme.typography.titleLarge)
+                                Text("Откройте отдельный поток по ссылке.", color = Muted)
+                                TvButton("Открыть поток по URL", { direct = true })
+                            } }
+                            item { Text("IPTV ${BuildConfig.VERSION_NAME}", color = Muted,
+                                style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(8.dp)) }
                         }
                         else -> key(filter) { ChannelsScreen(vm, visible, listState, now, { actions = it }, { screen = "sources" }) }
                     }
@@ -251,7 +283,7 @@ fun IptvApp(vm: IptvViewModel = viewModel()) {
                 true
             } else false
         }) {
-            NavigationSidebar(Modifier.background(Color(0xFF171C20)).padding(24.dp), groupsOnly = !menuRoot)
+            NavigationSidebar(Modifier.padding(SidebarOuterPadding), groupsOnly = !menuRoot)
         }
         LaunchedEffect(menuRoot) { withFrameNanos { }; menuFocus.requestFocus() }
     }

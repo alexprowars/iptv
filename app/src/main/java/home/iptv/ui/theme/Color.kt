@@ -2,10 +2,17 @@ package home.iptv.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val Purple80 = Color(0xFFD0BCFF)
-val PurpleGrey80 = Color(0xFFCCC2DC)
-val Pink80 = Color(0xFFEFB8C8)
-
-val Purple40 = Color(0xFF6650a4)
-val PurpleGrey40 = Color(0xFF625b71)
-val Pink40 = Color(0xFF7D5260)
+/** Shared palette for the dashboard, forms and playback overlays. */
+object IptvColors {
+    val Background = Color(0xFF101012)
+    val Surface = Color(0xFF19191C)
+    val Elevated = Color(0xFF252529)
+    val Outline = Color(0xFF3A3A40)
+    val Text = Color(0xFFF5F5F7)
+    val Muted = Color(0xFFABABB3)
+    val Accent = Color(0xFF83AEF5)
+    val Focus = Color(0xFFF5F5F7)
+    val OnAccent = Color(0xFF111114)
+    val Selected = Color(0xFF303036)
+    val Error = Color(0xFFFFB4A9)
+}

@@ -66,6 +66,29 @@ class TvUiTest {
         store.put("vm", vm)
     }
     @After fun cleanup() { store.clear() }
+    @Test fun newEpgSelectsUnlinkedPlaylistAndRemoteCanReachIt() {
+        compose.setContent {
+            IPTVTheme {
+                home.iptv.feature.sources.SourceEditor(vm,
+                    Source(kind = Source.EPG, name = "Новая программа", location = ""), null, {})
+            }
+        }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("✓ Тестовый плейлист").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("0").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        compose.onNodeWithText("0").performKeyInput { pressKey(Key.DirectionDown) }
+        compose.onNodeWithText("✓ Тестовый плейлист").assertIsFocused()
+    }
+    @Test fun newPlaylistSelectsExistingEpgButEditingKeepsEmptySelection() {
+        var source by mutableStateOf(Source(name = "Новый плейлист", location = ""))
+        compose.setContent {
+            IPTVTheme { home.iptv.feature.sources.SourceEditor(vm, source, null, {}) }
+        }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("1. Тестовая программа").fetchSemanticsNodes().isNotEmpty() }
+        compose.runOnIdle { source = Source(id = "playlist", name = "Тестовый плейлист", location = "") }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("+ Тестовая программа").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("1. Тестовая программа").assertDoesNotExist()
+        compose.onNodeWithText("+ Тестовая программа").assertExists()
+    }
     private fun show() {
         compose.setContent { IPTVTheme { IptvApp(vm) } }
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Канал A").fetchSemanticsNodes().isNotEmpty() }
@@ -181,16 +204,26 @@ class TvUiTest {
         compose.onNode(hasText("Сейчас A") and hasClickAction()).performSemanticsAction(SemanticsActions.OnLongClick) { it() }
         compose.onNodeWithText("Добавить в избранное").performSemanticsAction(SemanticsActions.OnClick) { it() }
         openGuideMenu()
-        compose.onNodeWithText("★ Избранное").performSemanticsAction(SemanticsActions.OnClick) { it() }
+        compose.onNodeWithText("Избранное").performSemanticsAction(SemanticsActions.OnClick) { it() }
         compose.waitUntil(10_000) { vm.visible.value.size == 1 && compose.onAllNodesWithText("Канал B").fetchSemanticsNodes().isEmpty() }
         openGuideMenu()
         compose.onNodeWithText("Настройки").performSemanticsAction(SemanticsActions.OnClick) { it() }
-        compose.onNodeWithText("Продолжать последний канал: нет").assertExists()
+        compose.onNodeWithText("Продолжать последний канал").assertExists()
+        compose.onNodeWithText("Выключено").assertExists()
+        capture("settings.png")
         compose.onNodeWithText("Источники").performSemanticsAction(SemanticsActions.OnClick) { it() }
         compose.onNodeWithText("+ Плейлист").assertExists()
         compose.onNodeWithText("+ Плейлист").performSemanticsAction(SemanticsActions.OnClick) { it() }
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithText("Выбрать файл").fetchSemanticsNodes().size == 1
+        }
         compose.onNodeWithText("Выбрать файл").assertExists()
         capture("source-editor.png")
+        // A new playlist starts with the existing EPG selected.
+        compose.onNodeWithText("1. Тестовая программа").assertExists()
+        compose.onNodeWithText("Убрать").performScrollTo()
+            .performSemanticsAction(SemanticsActions.OnClick) { it() }
+        compose.onNodeWithText("1. Тестовая программа").assertDoesNotExist()
         compose.onNodeWithText("+ Тестовая программа").performScrollTo()
             .performSemanticsAction(SemanticsActions.OnClick) { it() }
         compose.mainClock.advanceTimeBy(100)
@@ -360,6 +393,9 @@ class TvUiTest {
         openGuideMenu()
         compose.onNodeWithText("Источники").performSemanticsAction(SemanticsActions.OnClick) { it() }
         compose.onNodeWithText("+ Плейлист").performSemanticsAction(SemanticsActions.OnClick) { it() }
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithText("Плейлист M3U").fetchSemanticsNodes().size == 1
+        }
         compose.onNodeWithText("Плейлист M3U").assertExists()
         compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
         compose.onNodeWithText("+ Плейлист").assertExists()
@@ -381,6 +417,27 @@ class TvUiTest {
             (org.robolectric.shadows.ShadowDialog.getLatestDialog() as androidx.activity.ComponentDialog)
                 .onBackPressedDispatcher.onBackPressed()
             Assert.assertTrue(compose.activity.isFinishing)
+        }
+    }
+    @Test fun sidebarKeepsSelectionWhileRemoteFocusMoves() {
+        show()
+        openGuideMenu()
+        compose.onNodeWithText("Все каналы").assertIsSelected().assertIsFocused()
+            .performKeyInput { pressKey(Key.DirectionDown) }
+        compose.onNodeWithText("Избранное").assertIsFocused().assertIsNotSelected()
+        compose.onNodeWithText("Все каналы").assertIsSelected()
+        val folder = File("build/reports/ui").apply { mkdirs() }
+        compose.onNode(isDialog()).captureToImage().asAndroidBitmap().let { bitmap ->
+            File(folder, "navigation-menu.png").outputStream().use {
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+            }
+        }
+        compose.onNodeWithText("Избранное").performKeyInput { pressKey(Key.DirectionRight) }
+        compose.onNodeWithText("Все каналы").assertIsSelected().assertIsFocused()
+        compose.onNode(isDialog()).captureToImage().asAndroidBitmap().let { bitmap ->
+            File(folder, "channel-menu.png").outputStream().use {
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+            }
         }
     }
     @Test fun renderChannelListForVisualReview() {
